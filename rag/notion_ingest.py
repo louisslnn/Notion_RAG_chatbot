@@ -52,7 +52,7 @@ def page_to_text(page_id: str):
     pieces = [block_to_text(b) for b in blocks if block_to_text(b).strip()]
     return "\n\n".join(pieces)
 
-def read_and_save_ids(file='Notion_RAG_chatbot/rag/pages_id.txt'):
+def read_and_save_ids(file='pages_id.txt'):
     ids = []
 
     with open(file=file, encoding='utf-8') as f:

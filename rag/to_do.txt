@@ -1,0 +1,4 @@
+- Improve frontend UI
+- Add 3 dots when the bot is thinking
+- Remove chunks between parentheses
+- Try to pretty print the text appearing in the bot's messages

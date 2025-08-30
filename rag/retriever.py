@@ -6,8 +6,6 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from grader import grade_context
 from rewriter import rewrite_query
 from answerer import generate_answer
-from notion_ingest import read_and_save_ids
-from notion_ingest import page_to_text
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 CHUNK_SIZE = 500
@@ -62,21 +60,3 @@ def ask_pipeline(vectorstore: InMemoryVectorStore, user_query: str):
             "decision": "rewrite_question",
             "message": "Retrieved notes do not appear relevant. Consider refining the query or adding notes."
         }
-    
-def get_note_text():
-    texts = []
-    ids = read_and_save_ids()
-    for id in ids:
-        texts.append(page_to_text(id))
-    return texts
-
-# ---- USAGE EXAMPLE ----
-if __name__ == "__main__":
-    # Replace this with your actual Notion text extraction:
-    # e.g. texts = [page_to_text(page_id) for page_id in my_list_of_page_ids]
-    texts = get_note_text()
-
-    vs = build_inmemory_from_texts(texts)
-    query = "What does my notes say about microeconomics?"
-    out = ask_pipeline(vs, query)
-    print(out.get('answer'))
