@@ -52,6 +52,23 @@ def page_to_text(page_id: str):
     pieces = [block_to_text(b) for b in blocks if block_to_text(b).strip()]
     return "\n\n".join(pieces)
 
-"""raw_text = page_to_text("25cccabaa09f8006a31ecaa935725b3c")"""
+def read_and_save_ids(file='Notion_RAG_chatbot/rag/pages_id.txt'):
+    ids = []
+
+    with open(file=file, encoding='utf-8') as f:
+        text = f.read()
+
+    for line in text.split("\n"):
+        if line.strip():   # skip empty lines
+            ids.append(line.strip())
+
+    return ids
+
+def get_note_text():
+    texts = []
+    ids = read_and_save_ids()
+    for id in ids:
+        texts.append(page_to_text(id))
+    return texts
 
 

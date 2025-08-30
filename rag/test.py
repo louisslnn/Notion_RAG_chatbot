@@ -3,7 +3,7 @@ from typing import List
 from dotenv import load_dotenv
 
 from notion_ingest import page_to_text
-from db_handler import read_and_save_ids
+from notion_ingest import read_and_save_ids
 
 from langchain.docstore.document import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter

@@ -6,8 +6,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from grader import grade_context
 from rewriter import rewrite_query
 from answerer import generate_answer
-from rag.db_handler import read_and_save_ids
-from rag.notion_ingest import page_to_text
+from notion_ingest import read_and_save_ids
+from notion_ingest import page_to_text
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 CHUNK_SIZE = 500
