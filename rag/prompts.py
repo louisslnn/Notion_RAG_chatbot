@@ -30,6 +30,5 @@ User question:
 Context (retrieved notes):
 {context}
 
-Answer concisely and cite which chunk(s) you used by writing (chunk i) after each supporting sentence,
-where i is the 1-based index of the chunk in the `context` list. If multiple chunks are used, list them.
+Answer concisely and don't hesitate to provide a pretty printed answer for user-friendliness.
 """

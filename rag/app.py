@@ -8,7 +8,6 @@ app = Flask(__name__)
 # --- replace with your actual RAG function ---
 def rag_response(user_message: str) -> str:
     texts = get_note_text()
-
     vs = build_inmemory_from_texts(texts)
     response = ask_pipeline(vs, user_message).get("answer")
     return response
