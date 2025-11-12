@@ -19,8 +19,14 @@ def create_app(config_object=BaseConfig):
     jwt.init_app(app)
     cors.init_app(
         app,
-        resources={r"/api/*": {"origins": app.config["FRONTEND_ORIGINS"]}},
-        supports_credentials=True,
+        resources={
+            r"/api/*": {
+                "origins": app.config["FRONTEND_ORIGINS"],
+                "allow_headers": ["Content-Type", "Authorization"],
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                "supports_credentials": True,
+            }
+        },
     )
     limiter.init_app(app)
 

@@ -21,7 +21,7 @@ class BaseConfig:
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB upload limit
     RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
     RATE_LIMIT = os.getenv("RATE_LIMIT", "60/minute")
-    FRONTEND_ORIGINS = os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",")
+    FRONTEND_ORIGINS = [origin.strip() for origin in os.getenv("FRONTEND_ORIGINS", "http://localhost:5173").split(",") if origin.strip()]
 
 
 class DevelopmentConfig(BaseConfig):

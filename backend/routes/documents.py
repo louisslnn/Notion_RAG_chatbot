@@ -34,7 +34,7 @@ def list_documents():
                     "stored_name": doc.filename,
                     "created_at": doc.created_at.isoformat(),
                     "chunk_count": doc.chunk_count,
-                    "metadata": doc.metadata,
+                    "metadata": doc.extra_metadata,
                 }
                 for doc in docs
             ]
@@ -93,7 +93,7 @@ def upload_document():
         original_name=file.filename,
         content_hash=ingest_result["content_hash"],
         chunk_count=ingest_result["chunks_added"],
-        metadata={"content_type": content_type},
+        extra_metadata={"content_type": content_type},
     )
     db.session.add(document)
 

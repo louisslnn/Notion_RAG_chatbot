@@ -61,7 +61,7 @@ class UploadedDocument(db.Model):
     original_name = db.Column(db.String(255), nullable=False)
     content_hash = db.Column(db.String(64), nullable=False, index=True)
     chunk_count = db.Column(db.Integer, default=0, nullable=False)
-    metadata = db.Column(db.JSON, nullable=True)
+    extra_metadata = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     user = db.relationship("User", back_populates="documents")

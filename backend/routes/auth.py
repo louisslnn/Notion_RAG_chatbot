@@ -2,6 +2,7 @@ from datetime import datetime
 
 from flask import current_app, jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
+from flask_cors import cross_origin
 
 from ..extensions import db, limiter
 from ..models import User
@@ -9,9 +10,12 @@ from ..security import hash_password, verify_password
 from . import auth_bp
 
 
-@auth_bp.route("/register", methods=["POST"])
-@limiter.limit(lambda: current_app.config.get("RATE_LIMIT"))
+@auth_bp.route("/register", methods=["POST", "OPTIONS"])
+@cross_origin()
+@limiter.limit(lambda: current_app.config.get("RATE_LIMIT"), methods=["POST"])
 def register():
+    if request.method == "OPTIONS":
+        return ("", 204, {})
     payload = request.get_json() or {}
     email = payload.get("email", "").strip().lower()
     password = payload.get("password", "")
@@ -30,9 +34,12 @@ def register():
     return jsonify({"access_token": access_token, "user": {"id": user.id, "email": user.email}})
 
 
-@auth_bp.route("/login", methods=["POST"])
-@limiter.limit(lambda: current_app.config.get("RATE_LIMIT"))
+@auth_bp.route("/login", methods=["POST", "OPTIONS"])
+@cross_origin()
+@limiter.limit(lambda: current_app.config.get("RATE_LIMIT"), methods=["POST"])
 def login():
+    if request.method == "OPTIONS":
+        return ("", 204, {})
     payload = request.get_json() or {}
     email = payload.get("email", "").strip().lower()
     password = payload.get("password", "")

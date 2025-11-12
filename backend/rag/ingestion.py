@@ -4,8 +4,8 @@ import os
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
-from langchain.docstore.document import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from markdown import markdown
 from bs4 import BeautifulSoup
 from PyPDF2 import PdfReader
