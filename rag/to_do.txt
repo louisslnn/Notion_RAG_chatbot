@@ -1,4 +1,0 @@
-- Improve frontend UI (global UI, )
-- Try to pretty print the text appearing in the bot's messages
-- Clean out each file, add comments, typings and generate README
-- Prepare everything to be ready posting my project on LinkedIn

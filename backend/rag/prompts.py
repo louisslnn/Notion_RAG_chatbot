@@ -30,5 +30,6 @@ User question:
 Context (retrieved notes):
 {context}
 
-Answer concisely and don't hesitate to provide a pretty printed answer for user-friendliness.
+Answer concisely and prefer structured bullet points or tables when it improves clarity.
 """
+

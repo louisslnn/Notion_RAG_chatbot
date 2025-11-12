@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --surface: 15 23 42;
+  --surface-strong: 17 24 39;
+  --panel: 15 23 42;
+  --border: 148 163 184;
+  --hover: 148 163 184;
+  --foreground: 248 250 252;
+  --muted: 148 163 184;
+  --accent: 99 102 241;
+  --success: 52 211 153;
+  --error: 248 113 113;
+}
+
+body {
+  @apply bg-surface text-foreground antialiased;
+  background-image: radial-gradient(circle at top, rgba(99, 102, 241, 0.18), transparent 48%);
+}
+
+a {
+  @apply text-accent underline-offset-2 transition hover:underline;
+}
+
+.glass {
+  @apply rounded-2xl border border-border/20 bg-panel/80 shadow-xl backdrop-blur;
+}
+
+.grid-card {
+  @apply rounded-xl border border-border/30 bg-panel/80 p-6 shadow-lg backdrop-blur-lg transition hover:border-accent/40;
+}
+
+.prose-sm {
+  @apply text-sm leading-relaxed;
+}
+
