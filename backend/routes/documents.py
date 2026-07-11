@@ -3,6 +3,7 @@ import time
 
 from flask import current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from werkzeug.utils import secure_filename
 
 from ..extensions import db, limiter
 from ..models import UploadedDocument, UsageLog
@@ -51,6 +52,10 @@ def upload_document():
     if not file:
         return jsonify({"error": "file is required"}), 400
 
+    filename = secure_filename(file.filename or "")
+    if not filename:
+        return jsonify({"error": "invalid filename"}), 400
+
     content_type = file.mimetype or "application/octet-stream"
     if content_type not in SUPPORTED_MIME_TYPES:
         return jsonify({"error": f"Unsupported content type: {content_type}"}), 415
@@ -69,7 +74,7 @@ def upload_document():
     if existing:
         return jsonify({"message": "Document already ingested", "document_id": existing.id}), 200
 
-    random_name = f"{secrets.token_hex(8)}_{file.filename}"
+    random_name = f"{secrets.token_hex(8)}_{filename}"
     stored_path = save_upload_to_disk(current_app.config["UPLOAD_FOLDER"], random_name, file_bytes)
 
     pipeline = get_pipeline(
@@ -80,7 +85,7 @@ def upload_document():
     ingest_result = pipeline.ingest_uploaded_text(
         text,
         metadata={
-            "source": file.filename,
+            "source": filename,
             "content_type": content_type,
             "user_id": user_id,
             "path": stored_path,
@@ -90,7 +95,7 @@ def upload_document():
     document = UploadedDocument(
         user_id=user_id,
         filename=random_name,
-        original_name=file.filename,
+        original_name=filename,
         content_hash=ingest_result["content_hash"],
         chunk_count=ingest_result["chunks_added"],
         extra_metadata={"content_type": content_type},

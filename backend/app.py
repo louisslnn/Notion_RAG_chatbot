@@ -8,6 +8,9 @@ from .routes import register_blueprints
 
 
 def create_app(config_object=BaseConfig):
+    if os.getenv("FLASK_ENV") == "production" and not os.getenv("JWT_SECRET_KEY"):
+        raise RuntimeError("JWT_SECRET_KEY must be set when FLASK_ENV=production")
+
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_object)
 

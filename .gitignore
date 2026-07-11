@@ -1,18 +1,28 @@
+# Env
 .env
 .env.*
+!.env.example
 
 # Python
 .venv/
 __pycache__/
 *.pyc
 instance/
-storage/uploads/
-storage/vectorstore/
+
+# App storage (keep the folder structure, ignore the contents)
+storage/uploads/*
+storage/vectorstore/*
+!storage/uploads/.gitkeep
+!storage/vectorstore/.gitkeep
 
 # Node/Vite
-frontend/node_modules/
-frontend/dist/
+node_modules/
+dist/
 frontend/.eslintcache
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
 
 # macOS
 .DS_Store

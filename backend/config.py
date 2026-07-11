@@ -8,7 +8,9 @@ class BaseConfig:
         f"sqlite:///{os.path.join(os.path.dirname(__file__), '..', 'instance', 'app.db')}",
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me")
+    # Development-only fallback; create_app() refuses to start in production
+    # when JWT_SECRET_KEY is not provided via the environment.
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-only-insecure-secret")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=12)
     UPLOAD_FOLDER = os.getenv(
         "UPLOAD_FOLDER",
