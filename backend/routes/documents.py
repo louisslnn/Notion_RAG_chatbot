@@ -19,7 +19,7 @@ from . import docs_bp
 @docs_bp.route("", methods=["GET"])
 @jwt_required()
 def list_documents():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     docs = (
         UploadedDocument.query.filter_by(user_id=user_id)
         .order_by(UploadedDocument.created_at.desc())
@@ -46,7 +46,7 @@ def list_documents():
 @jwt_required()
 @limiter.limit(lambda: current_app.config.get("RATE_LIMIT"))
 def upload_document():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     file = request.files.get("file")
     if not file:
         return jsonify({"error": "file is required"}), 400

@@ -10,7 +10,7 @@ from . import analytics_bp
 @analytics_bp.route("/summary", methods=["GET"])
 @jwt_required()
 def summary():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     usage = calculate_usage_summary(user_id)
     total_sessions = ChatSession.query.filter_by(user_id=user_id).count()
     total_messages = (

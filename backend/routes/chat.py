@@ -33,7 +33,7 @@ def query_chat():
     if not message:
         return jsonify({"error": "message is required"}), 400
 
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     pipeline = get_pipeline(
         persist_directory=current_app.config["VECTOR_STORE_FOLDER"],
         top_k=current_app.config["RAG_TOP_K"],
@@ -46,7 +46,7 @@ def query_chat():
     db.session.flush()
 
     start = time.perf_counter()
-    result = pipeline.query(message)
+    result = pipeline.query(message, user_id=user_id)
     latency_ms = (time.perf_counter() - start) * 1000
 
     assistant_msg = ChatMessage(
@@ -77,7 +77,7 @@ def query_chat():
 @chat_bp.route("/history", methods=["GET"])
 @jwt_required()
 def history():
-    user_id = get_jwt_identity()
+    user_id = int(get_jwt_identity())
     sessions = (
         ChatSession.query.filter_by(user_id=user_id)
         .order_by(ChatSession.created_at.desc())

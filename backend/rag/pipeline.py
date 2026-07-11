@@ -41,9 +41,19 @@ class RAGPipeline:
         if self._vectorstore:
             self._vectorstore.persist()
 
+    @staticmethod
+    def _collection_count(vectorstore: Chroma) -> int:
+        try:
+            return vectorstore._collection.count()  # type: ignore[attr-defined]
+        except AttributeError:
+            return 0
+
     def ingest_documents(self, docs: List[Document]) -> int:
         if not docs:
             return 0
+        for doc in docs:
+            if doc.metadata.get("user_id") is None:
+                raise ValueError("Every ingested document must carry a user_id in its metadata")
         with self._lock:
             vectorstore = self._load_vectorstore()
             vectorstore.add_documents(docs)
@@ -59,9 +69,9 @@ class RAGPipeline:
         added = self.ingest_documents(docs)
         return {"chunks_added": added, "content_hash": hash_content(content)}
 
-    def query(self, query: str, *, top_k: Optional[int] = None) -> Dict:
+    def query(self, query: str, *, user_id: int, top_k: Optional[int] = None) -> Dict:
         vectorstore = self._load_vectorstore()
-        if vectorstore._collection.count() == 0:  # type: ignore[attr-defined]
+        if self._collection_count(vectorstore) == 0:
             return {
                 "answer": "Knowledge base is empty. Upload documents or sync Notion to get started.",
                 "sources": [],
@@ -70,7 +80,9 @@ class RAGPipeline:
 
         rewritten_query = self.rewriter.rewrite(query)
         k = top_k or self.top_k
-        results = vectorstore.similarity_search_with_relevance_scores(rewritten_query, k=k)
+        results = vectorstore.similarity_search_with_relevance_scores(
+            rewritten_query, k=k, filter={"user_id": user_id}
+        )
 
         if not results:
             return {
