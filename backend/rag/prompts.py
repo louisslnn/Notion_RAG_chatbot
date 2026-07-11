@@ -7,7 +7,8 @@ User question:
 Retrieved document content:
 {context}
 
-If the document contains keywords or semantic meaning related to the user question, respond with exactly 'yes'. Otherwise respond with exactly 'no'.
+If the document contains keywords or semantic meaning related to the user question,
+respond with exactly 'yes'. Otherwise respond with exactly 'no'.
 """
 
 REWRITE_PROMPT = """
@@ -32,4 +33,3 @@ Context (retrieved notes):
 
 Answer concisely and prefer structured bullet points or tables when it improves clarity.
 """
-

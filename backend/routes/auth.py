@@ -1,8 +1,8 @@
 from datetime import datetime
 
 from flask import current_app, jsonify, request
-from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
 from flask_cors import cross_origin
+from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
 
 from ..extensions import db, limiter
 from ..models import User
@@ -59,8 +59,7 @@ def login():
 @jwt_required()
 def me():
     user_id = int(get_jwt_identity())
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "user not found"}), 404
     return jsonify({"user": {"id": user.id, "email": user.email}})
-

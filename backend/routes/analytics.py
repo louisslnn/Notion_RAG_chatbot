@@ -44,4 +44,3 @@ def summary():
             "last_7_days": daily_calls,
         }
     )
-

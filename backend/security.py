@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -14,4 +13,3 @@ def verify_password(raw_password: str, password_hash: str) -> bool:
 
 def timestamp_now() -> datetime:
     return datetime.utcnow()
-

@@ -115,4 +115,3 @@ def upload_document():
             "latency_ms": round(latency_ms, 2),
         }
     )
-

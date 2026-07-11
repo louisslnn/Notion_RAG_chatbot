@@ -49,9 +49,7 @@ def test_users_only_retrieve_their_own_documents(client):
     upload_markdown(
         client, token_a, "alice.md", "# Alice\nAlice's secret project is codenamed AQUILA."
     )
-    upload_markdown(
-        client, token_b, "bob.md", "# Bob\nBob's secret project is codenamed BOREAL."
-    )
+    upload_markdown(client, token_b, "bob.md", "# Bob\nBob's secret project is codenamed BOREAL.")
 
     for token, own_user_id, own_code, other_code in (
         (token_a, user_a, "AQUILA", "BOREAL"),

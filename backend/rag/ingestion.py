@@ -1,13 +1,13 @@
 import hashlib
 import io
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
 
+from bs4 import BeautifulSoup
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from markdown import markdown
-from bs4 import BeautifulSoup
 from pypdf import PdfReader
 
 CHUNK_SIZE = 600
@@ -46,7 +46,7 @@ def extract_text(file_bytes: bytes, content_type: str) -> str:
     raise ValueError(f"Unsupported content type: {content_type}")
 
 
-def chunk_text(content: str, metadata: Optional[dict] = None) -> List[Document]:
+def chunk_text(content: str, metadata: dict | None = None) -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     docs = splitter.create_documents([content], metadatas=[metadata or {}])
     return docs
@@ -64,11 +64,10 @@ def save_upload_to_disk(upload_folder: str, filename: str, content: bytes) -> st
     return path
 
 
-def documents_from_texts(texts: Iterable[str], base_metadata: Optional[dict] = None) -> List[Document]:
-    docs: List[Document] = []
+def documents_from_texts(texts: Iterable[str], base_metadata: dict | None = None) -> list[Document]:
+    docs: list[Document] = []
     for idx, text in enumerate(texts):
         metadata = base_metadata.copy() if base_metadata else {}
         metadata.setdefault("source", f"notion_page_{idx}")
         docs.extend(chunk_text(text, metadata=metadata))
     return docs
-

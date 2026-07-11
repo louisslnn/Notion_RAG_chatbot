@@ -1,6 +1,6 @@
+from dotenv import find_dotenv, load_dotenv
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv, find_dotenv
 
 from .prompts import REWRITE_PROMPT
 
@@ -24,4 +24,3 @@ class QueryRewriter:
             [{"role": "user", "content": prompt}]
         )
         return response.rewritten
-

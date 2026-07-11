@@ -1,8 +1,7 @@
-import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from threading import RLock
-from typing import Dict, Iterable, List, Optional
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -10,7 +9,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 from .answerer import AnswerGenerator
 from .grader import ContextGrader
-from .ingestion import documents_from_texts, chunk_text, hash_content
+from .ingestion import chunk_text, documents_from_texts, hash_content
 from .rewriter import QueryRewriter
 
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
@@ -21,7 +20,7 @@ class RAGPipeline:
         self.persist_directory = Path(persist_directory)
         self.top_k = top_k
         self._lock = RLock()
-        self._vectorstore: Optional[Chroma] = None
+        self._vectorstore: Chroma | None = None
         self.embedding = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
         self.answerer = AnswerGenerator()
         self.grader = ContextGrader()
@@ -44,7 +43,7 @@ class RAGPipeline:
         except AttributeError:
             return 0
 
-    def ingest_documents(self, docs: List[Document]) -> int:
+    def ingest_documents(self, docs: list[Document]) -> int:
         if not docs:
             return 0
         for doc in docs:
@@ -55,20 +54,22 @@ class RAGPipeline:
             vectorstore.add_documents(docs)
         return len(docs)
 
-    def ingest_texts(self, texts: Iterable[str], base_metadata: Optional[Dict] = None) -> int:
+    def ingest_texts(self, texts: Iterable[str], base_metadata: dict | None = None) -> int:
         docs = documents_from_texts(texts, base_metadata=base_metadata)
         return self.ingest_documents(docs)
 
-    def ingest_uploaded_text(self, content: str, metadata: Optional[Dict] = None) -> Dict[str, int]:
+    def ingest_uploaded_text(self, content: str, metadata: dict | None = None) -> dict[str, int]:
         docs = chunk_text(content, metadata=metadata)
         added = self.ingest_documents(docs)
         return {"chunks_added": added, "content_hash": hash_content(content)}
 
-    def query(self, query: str, *, user_id: int, top_k: Optional[int] = None) -> Dict:
+    def query(self, query: str, *, user_id: int, top_k: int | None = None) -> dict:
         vectorstore = self._load_vectorstore()
         if self._collection_count(vectorstore) == 0:
             return {
-                "answer": "Knowledge base is empty. Upload documents or sync Notion to get started.",
+                "answer": (
+                    "Knowledge base is empty. Upload documents or sync Notion to get started."
+                ),
                 "sources": [],
                 "query_original": query,
             }
@@ -98,7 +99,8 @@ class RAGPipeline:
                     "score": score,
                     "confidence": round(confidence, 3),
                     "metadata": doc.metadata,
-                    "snippet": doc.page_content[:280] + ("..." if len(doc.page_content) > 280 else ""),
+                    "snippet": doc.page_content[:280]
+                    + ("..." if len(doc.page_content) > 280 else ""),
                 }
             )
 
@@ -107,7 +109,9 @@ class RAGPipeline:
 
         if decision != "yes":
             return {
-                "answer": "Retrieved notes do not appear relevant. Refine the query or add documents.",
+                "answer": (
+                    "Retrieved notes do not appear relevant. Refine the query or add documents."
+                ),
                 "sources": source_entries[:3],
                 "query_original": query,
                 "query_rewritten": rewritten_query,
@@ -122,7 +126,7 @@ class RAGPipeline:
         }
 
 
-_pipeline: Optional[RAGPipeline] = None
+_pipeline: RAGPipeline | None = None
 
 
 def get_pipeline(persist_directory: str, top_k: int = 4) -> RAGPipeline:
@@ -130,4 +134,3 @@ def get_pipeline(persist_directory: str, top_k: int = 4) -> RAGPipeline:
     if _pipeline is None:
         _pipeline = RAGPipeline(persist_directory=persist_directory, top_k=top_k)
     return _pipeline
-

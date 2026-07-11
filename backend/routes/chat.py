@@ -1,5 +1,4 @@
 import time
-from typing import Optional
 
 from flask import current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
@@ -10,7 +9,9 @@ from ..rag import get_pipeline
 from . import chat_bp
 
 
-def _get_or_create_session(user_id: int, session_id: Optional[int], title: Optional[str] = None) -> ChatSession:
+def _get_or_create_session(
+    user_id: int, session_id: int | None, title: str | None = None
+) -> ChatSession:
     if session_id:
         session = ChatSession.query.filter_by(id=session_id, user_id=user_id).first()
         if session:
@@ -79,9 +80,7 @@ def query_chat():
 def history():
     user_id = int(get_jwt_identity())
     sessions = (
-        ChatSession.query.filter_by(user_id=user_id)
-        .order_by(ChatSession.created_at.desc())
-        .all()
+        ChatSession.query.filter_by(user_id=user_id).order_by(ChatSession.created_at.desc()).all()
     )
     serialized = []
     for session in sessions:
@@ -104,4 +103,3 @@ def history():
             }
         )
     return jsonify({"sessions": serialized})
-

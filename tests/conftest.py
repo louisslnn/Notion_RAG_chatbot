@@ -47,7 +47,7 @@ def app(tmp_path):
     class TestConfig(BaseConfig):
         TESTING = True
         SQLALCHEMY_DATABASE_URI = "sqlite://"
-        JWT_SECRET_KEY = "test-secret"
+        JWT_SECRET_KEY = "test-secret-key-long-enough-for-hs256-signing"
         UPLOAD_FOLDER = str(tmp_path / "uploads")
         VECTOR_STORE_FOLDER = str(tmp_path / "vectorstore")
         RATELIMIT_ENABLED = False

@@ -1,5 +1,4 @@
 import os
-from typing import List
 
 from dotenv import load_dotenv
 from notion_client import Client
@@ -49,6 +48,5 @@ def page_to_text(page_id: str) -> str:
     return "\n\n".join(pieces)
 
 
-def get_note_texts(pages: List[str]) -> List[str]:
+def get_note_texts(pages: list[str]) -> list[str]:
     return [page_to_text(page_id) for page_id in pages]
-
