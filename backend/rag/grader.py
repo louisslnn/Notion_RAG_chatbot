@@ -6,7 +6,8 @@ from .prompts import GRADE_PROMPT
 
 load_dotenv(find_dotenv())
 
-DEFAULT_MODEL = "anthropic:claude-3-5-sonnet-latest"
+# Binary relevance grading is cheap and latency-sensitive: use Haiku.
+DEFAULT_MODEL = "claude-haiku-4-5"
 
 
 class GradeDocuments(BaseModel):
@@ -15,7 +16,7 @@ class GradeDocuments(BaseModel):
 
 class ContextGrader:
     def __init__(self, model_name: str = DEFAULT_MODEL, temperature: float = 0.0):
-        self.llm = init_chat_model(model_name, temperature=temperature)
+        self.llm = init_chat_model(model_name, model_provider="anthropic", temperature=temperature)
 
     def grade(self, question: str, context_text: str) -> str:
         prompt = GRADE_PROMPT.format(question=question, context=context_text)

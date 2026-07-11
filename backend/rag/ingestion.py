@@ -8,7 +8,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from markdown import markdown
 from bs4 import BeautifulSoup
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 CHUNK_SIZE = 600
 CHUNK_OVERLAP = 80

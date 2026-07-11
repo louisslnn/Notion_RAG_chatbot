@@ -1,3 +1,4 @@
+import os
 from typing import List
 
 from langchain.chat_models import init_chat_model
@@ -8,7 +9,8 @@ from .prompts import ANSWER_PROMPT
 
 load_dotenv(find_dotenv())
 
-DEFAULT_MODEL = "anthropic:claude-3-5-sonnet-latest"
+# The answering model is the quality-sensitive step; make it configurable.
+DEFAULT_MODEL = os.getenv("ANSWER_MODEL", "claude-sonnet-4-6")
 
 
 class AnswerOutput(BaseModel):
@@ -17,7 +19,7 @@ class AnswerOutput(BaseModel):
 
 class AnswerGenerator:
     def __init__(self, model_name: str = DEFAULT_MODEL, temperature: float = 0.2):
-        self.llm = init_chat_model(model_name, temperature=temperature)
+        self.llm = init_chat_model(model_name, model_provider="anthropic", temperature=temperature)
 
     def generate(self, question: str, chunks: List[str]) -> str:
         numbered_context = "\n\n".join(f"(chunk {i + 1}) {c}" for i, c in enumerate(chunks))

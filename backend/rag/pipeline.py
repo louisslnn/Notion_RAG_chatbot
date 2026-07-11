@@ -4,9 +4,9 @@ from pathlib import Path
 from threading import RLock
 from typing import Dict, Iterable, List, Optional
 
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 
 from .answerer import AnswerGenerator
 from .grader import ContextGrader
@@ -37,10 +37,6 @@ class RAGPipeline:
             )
         return self._vectorstore
 
-    def _persist(self):
-        if self._vectorstore:
-            self._vectorstore.persist()
-
     @staticmethod
     def _collection_count(vectorstore: Chroma) -> int:
         try:
@@ -57,7 +53,6 @@ class RAGPipeline:
         with self._lock:
             vectorstore = self._load_vectorstore()
             vectorstore.add_documents(docs)
-            self._persist()
         return len(docs)
 
     def ingest_texts(self, texts: Iterable[str], base_metadata: Optional[Dict] = None) -> int:
