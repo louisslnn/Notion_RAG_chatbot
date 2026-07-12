@@ -166,6 +166,9 @@ class RAGPipeline:
                 "confidence": round(confidence, 3),
                 "metadata": metadata,
                 "snippet": content[:280] + ("..." if len(content) > 280 else ""),
+                # Full chunk text for internal consumers (eval judge); the HTTP
+                # routes strip it before persisting or returning sources.
+                "content": content,
             }
             for key in ("note_title", "heading_path", "note_path"):
                 value = metadata.get(key)

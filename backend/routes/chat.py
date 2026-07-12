@@ -9,6 +9,11 @@ from ..rag import get_pipeline
 from . import chat_bp
 
 
+def _public_sources(sources: list[dict] | None) -> list[dict]:
+    """Sources as exposed over HTTP: full chunk content stays internal."""
+    return [{k: v for k, v in src.items() if k != "content"} for src in sources or []]
+
+
 def _get_or_create_session(
     user_id: int, session_id: int | None, title: str | None = None
 ) -> ChatSession:
@@ -50,11 +55,12 @@ def query_chat():
     result = pipeline.query(message, user_id=user_id)
     latency_ms = (time.perf_counter() - start) * 1000
 
+    sources = _public_sources(result.get("sources"))
     assistant_msg = ChatMessage(
         session=session,
         role="assistant",
         content=result.get("answer", ""),
-        sources=result.get("sources"),
+        sources=sources,
         response_time_ms=latency_ms,
     )
     db.session.add(assistant_msg)
@@ -68,7 +74,7 @@ def query_chat():
         {
             "session_id": session.id,
             "answer": result.get("answer"),
-            "sources": result.get("sources"),
+            "sources": sources,
             "query_rewritten": result.get("query_rewritten"),
             "latency_ms": round(latency_ms, 2),
         }

@@ -152,9 +152,19 @@ def eval_answers_command(goldset_path: str, email: str, limit: int | None, runs_
 @rag_cli.command("eval-report")
 @click.option("--runs-dir", default=DEFAULT_RUNS_DIR, show_default=True)
 @click.option("--last", default=None, type=int, help="Only include the N most recent runs.")
-def eval_report_command(runs_dir: str, last: int | None):
+@click.option(
+    "--type",
+    "run_type",
+    type=click.Choice(["retrieval", "answers", "all"]),
+    default="all",
+    show_default=True,
+    help="Only include runs of this type.",
+)
+def eval_report_command(runs_dir: str, last: int | None, run_type: str):
     """Markdown comparison table of past eval runs (runs as columns)."""
     runs = load_runs(runs_dir)
+    if run_type != "all":
+        runs = [run for run in runs if run.get("run_type") == run_type]
     if last:
         runs = runs[-last:]
     click.echo(markdown_report(runs))

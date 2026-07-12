@@ -167,8 +167,10 @@ def evaluate_answers(
 
         answer = result.get("answer", "")
         sources = result.get("sources") or []
+        # The judge sees the full chunk content, not the 280-char public snippet.
         sources_text = "\n\n".join(
-            f"[{src.get('note_path') or src.get('source')}] {src.get('snippet', '')}"
+            f"[{src.get('note_path') or src.get('source')}] "
+            f"{src.get('content') or src.get('snippet', '')}"
             for src in sources
         )
 
