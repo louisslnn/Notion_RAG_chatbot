@@ -2,17 +2,20 @@ import hashlib
 import io
 import os
 from collections.abc import Iterable
-from dataclasses import dataclass
 
-from bs4 import BeautifulSoup
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from markdown import markdown
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
 CHUNK_SIZE = 600
 CHUNK_OVERLAP = 80
 
+# Markdown sections larger than this are sub-split (~800 tokens at ~4 chars/token).
+MAX_SECTION_CHARS = 3200
+SECTION_CHUNK_OVERLAP = 200
+
+HEADERS_TO_SPLIT_ON = [("#", "h1"), ("##", "h2"), ("###", "h3"), ("####", "h4")]
+_HEADER_KEYS = [key for _, key in HEADERS_TO_SPLIT_ON]
 
 SUPPORTED_MIME_TYPES = {
     "application/pdf",
@@ -20,18 +23,7 @@ SUPPORTED_MIME_TYPES = {
     "text/plain",
 }
 
-
-@dataclass
-class IngestedDocument:
-    content: str
-    metadata: dict
-
-
-def _markdown_to_text(value: str) -> str:
-    """Render markdown to plain text by stripping HTML tags after markdown conversion."""
-    html = markdown(value)
-    soup = BeautifulSoup(html, "html.parser")
-    return soup.get_text("\n")
+MARKDOWN_EXTENSIONS = (".md", ".markdown")
 
 
 def extract_text(file_bytes: bytes, content_type: str) -> str:
@@ -39,9 +31,8 @@ def extract_text(file_bytes: bytes, content_type: str) -> str:
         reader = PdfReader(io.BytesIO(file_bytes))
         pages = [page.extract_text() or "" for page in reader.pages]
         return "\n\n".join(pages).strip()
-    if content_type == "text/markdown":
-        return _markdown_to_text(file_bytes.decode("utf-8"))
-    if content_type == "text/plain":
+    if content_type in ("text/markdown", "text/plain"):
+        # Markdown is kept raw so heading-aware chunking can use its structure.
         return file_bytes.decode("utf-8")
     raise ValueError(f"Unsupported content type: {content_type}")
 
@@ -50,6 +41,47 @@ def chunk_text(content: str, metadata: dict | None = None) -> list[Document]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     docs = splitter.create_documents([content], metadatas=[metadata or {}])
     return docs
+
+
+def chunk_markdown(content: str, metadata: dict | None = None) -> list[Document]:
+    """Split markdown along its heading structure.
+
+    Each chunk belongs to a heading path ("Architecture > Backend", stored in
+    metadata.heading_path). Sections larger than MAX_SECTION_CHARS are
+    sub-split while inheriting their heading_path.
+    """
+    base_metadata = metadata or {}
+    header_splitter = MarkdownHeaderTextSplitter(HEADERS_TO_SPLIT_ON)
+    sub_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=MAX_SECTION_CHARS, chunk_overlap=SECTION_CHUNK_OVERLAP
+    )
+
+    docs: list[Document] = []
+    for section in header_splitter.split_text(content):
+        heading_path = " > ".join(
+            section.metadata[key] for key in _HEADER_KEYS if key in section.metadata
+        )
+        section_metadata = dict(base_metadata)
+        if heading_path:
+            section_metadata["heading_path"] = heading_path
+
+        if len(section.page_content) <= MAX_SECTION_CHARS:
+            docs.append(Document(page_content=section.page_content, metadata=section_metadata))
+        else:
+            docs.extend(
+                sub_splitter.create_documents([section.page_content], metadatas=[section_metadata])
+            )
+    return docs
+
+
+def chunk_content(
+    content: str, metadata: dict | None = None, content_type: str | None = None
+) -> list[Document]:
+    """Chunk content, using heading-aware splitting for any markdown input."""
+    source = str((metadata or {}).get("source", ""))
+    if content_type == "text/markdown" or source.lower().endswith(MARKDOWN_EXTENSIONS):
+        return chunk_markdown(content, metadata)
+    return chunk_text(content, metadata)
 
 
 def hash_content(content: str) -> str:

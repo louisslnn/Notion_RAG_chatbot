@@ -9,7 +9,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 from .answerer import AnswerGenerator
 from .grader import ContextGrader
-from .ingestion import chunk_text, documents_from_texts, hash_content
+from .ingestion import chunk_content, documents_from_texts, hash_content
 from .rewriter import QueryRewriter
 
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
@@ -58,8 +58,10 @@ class RAGPipeline:
         docs = documents_from_texts(texts, base_metadata=base_metadata)
         return self.ingest_documents(docs)
 
-    def ingest_uploaded_text(self, content: str, metadata: dict | None = None) -> dict[str, int]:
-        docs = chunk_text(content, metadata=metadata)
+    def ingest_uploaded_text(
+        self, content: str, metadata: dict | None = None, content_type: str | None = None
+    ) -> dict[str, int]:
+        docs = chunk_content(content, metadata=metadata, content_type=content_type)
         added = self.ingest_documents(docs)
         return {"chunks_added": added, "content_hash": hash_content(content)}
 

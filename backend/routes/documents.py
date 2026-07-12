@@ -84,6 +84,7 @@ def upload_document():
     start = time.perf_counter()
     ingest_result = pipeline.ingest_uploaded_text(
         text,
+        content_type=content_type,
         metadata={
             "source": filename,
             "content_type": content_type,
