@@ -2,6 +2,7 @@ import os
 
 from flask import Flask, jsonify
 
+from .cli import obsidian_cli
 from .config import BaseConfig
 from .extensions import cors, db, jwt, limiter
 from .routes import register_blueprints
@@ -34,6 +35,7 @@ def create_app(config_object=BaseConfig):
     limiter.init_app(app)
 
     register_blueprints(app)
+    app.cli.add_command(obsidian_cli)
 
     @app.errorhandler(429)
     def rate_limit_handler(error):
