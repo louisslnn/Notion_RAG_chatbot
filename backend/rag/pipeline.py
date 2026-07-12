@@ -14,7 +14,7 @@ from .fusion import rrf_fuse
 from .ingestion import chunk_content, documents_from_texts, hash_content
 from .reranker import Reranker
 from .retrieval_config import RetrievalConfig
-from .rewriter import QueryRewriter
+from .rewriter import QueryRewriter, rewrite_reason
 
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
@@ -238,7 +238,26 @@ class RAGPipeline:
         candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
         return candidates
 
-    def query(self, query: str, *, user_id: int, top_k: int | None = None) -> dict:
+    def _maybe_rewrite(self, query: str, history: list[dict]) -> tuple[str, str]:
+        """Apply the configured rewrite policy; returns (query, reason)."""
+        mode = self.config.rewrite_mode
+        if mode == "never":
+            return query, "none"
+        reason = rewrite_reason(query)
+        if mode == "auto" and reason is None:
+            return query, "none"
+        if reason == "anaphoric" and history:
+            return self.rewriter.condense(query, history), "anaphoric"
+        return self.rewriter.rewrite(query), reason or "always"
+
+    def query(
+        self,
+        query: str,
+        *,
+        user_id: int,
+        top_k: int | None = None,
+        history: list[dict] | None = None,
+    ) -> dict:
         vectorstore = self._load_vectorstore()
         if self._collection_count(vectorstore) == 0:
             return {
@@ -249,7 +268,7 @@ class RAGPipeline:
                 "query_original": query,
             }
 
-        rewritten_query = self.rewriter.rewrite(query)
+        rewritten_query, reason = self._maybe_rewrite(query, history or [])
         k = top_k or self.config.final_k
         hits = self.retrieve(rewritten_query, user_id=user_id, top_k=k)
 
@@ -259,6 +278,7 @@ class RAGPipeline:
                 "sources": [],
                 "query_original": query,
                 "query_rewritten": rewritten_query,
+                "rewrite_reason": reason,
             }
 
         chunks = []
@@ -297,6 +317,7 @@ class RAGPipeline:
                     "sources": source_entries[:3],
                     "query_original": query,
                     "query_rewritten": rewritten_query,
+                    "rewrite_reason": reason,
                 }
 
         answer = self.answerer.generate(rewritten_query, chunks)
@@ -305,6 +326,7 @@ class RAGPipeline:
             "sources": source_entries[:3],
             "query_original": query,
             "query_rewritten": rewritten_query,
+            "rewrite_reason": reason,
         }
 
 

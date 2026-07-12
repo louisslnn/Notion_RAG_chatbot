@@ -47,12 +47,19 @@ def query_chat():
 
     session = _get_or_create_session(user_id, session_id, title)
 
+    # Conversation window used to condense anaphoric follow-ups
+    # ("et pour X ?") into standalone questions before retrieval.
+    window = pipeline.config.history_window
+    chat_history = [
+        {"role": msg.role, "content": msg.content} for msg in session.messages[-window:]
+    ]
+
     user_msg = ChatMessage(session=session, role="user", content=message)
     db.session.add(user_msg)
     db.session.flush()
 
     start = time.perf_counter()
-    result = pipeline.query(message, user_id=user_id)
+    result = pipeline.query(message, user_id=user_id, history=chat_history)
     latency_ms = (time.perf_counter() - start) * 1000
 
     sources = _public_sources(result.get("sources"))
@@ -76,6 +83,7 @@ def query_chat():
             "answer": result.get("answer"),
             "sources": sources,
             "query_rewritten": result.get("query_rewritten"),
+            "rewrite_reason": result.get("rewrite_reason"),
             "latency_ms": round(latency_ms, 2),
         }
     )

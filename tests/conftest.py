@@ -16,6 +16,9 @@ class FakeRewriter:
     def rewrite(self, original_query):
         return original_query
 
+    def condense(self, question, history):
+        return question
+
 
 class FakeReranker:
     """High constant relevance: never triggers the rerank threshold."""
