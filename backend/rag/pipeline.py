@@ -122,16 +122,18 @@ class RAGPipeline:
         for doc, score in results[: max(3, k)]:
             chunks.append(doc.page_content)
             confidence = min(1.0, max(0.0, float(score)))
-            source_entries.append(
-                {
-                    "source": doc.metadata.get("source", "unknown"),
-                    "score": score,
-                    "confidence": round(confidence, 3),
-                    "metadata": doc.metadata,
-                    "snippet": doc.page_content[:280]
-                    + ("..." if len(doc.page_content) > 280 else ""),
-                }
-            )
+            entry = {
+                "source": doc.metadata.get("source", "unknown"),
+                "score": score,
+                "confidence": round(confidence, 3),
+                "metadata": doc.metadata,
+                "snippet": doc.page_content[:280] + ("..." if len(doc.page_content) > 280 else ""),
+            }
+            for key in ("note_title", "heading_path", "note_path"):
+                value = doc.metadata.get(key)
+                if value:
+                    entry[key] = value
+            source_entries.append(entry)
 
         combined_context = "\n\n".join(chunks)
         decision = self.grader.grade(rewritten_query, combined_context)
