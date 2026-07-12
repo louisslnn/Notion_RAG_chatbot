@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import client from "../api/client";
+import client, { API_BASE_URL } from "../api/client";
 
 export type Source = {
   source: string;
@@ -25,11 +25,42 @@ type Session = {
   messages: ChatMessage[];
 };
 
+export type StreamingExchange = {
+  userContent: string;
+  answer: string;
+  sources: Source[];
+};
+
+type SseEvent = { event: string; data: any };
+
+function parseSseFrames(buffer: string): { events: SseEvent[]; rest: string } {
+  const frames = buffer.split("\n\n");
+  const rest = frames.pop() ?? "";
+  const events: SseEvent[] = [];
+  for (const frame of frames) {
+    let event = "message";
+    let data = "";
+    for (const line of frame.split("\n")) {
+      if (line.startsWith("event: ")) event = line.slice(7).trim();
+      else if (line.startsWith("data: ")) data += line.slice(6);
+    }
+    if (data) {
+      try {
+        events.push({ event, data: JSON.parse(data) });
+      } catch {
+        // ignore malformed frames
+      }
+    }
+  }
+  return { events, rest };
+}
+
 export function useChat() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [streaming, setStreaming] = useState<StreamingExchange | null>(null);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -70,11 +101,53 @@ export function useChat() {
       if (!content.trim()) return;
       setLoading(true);
       setError(null);
+      setStreaming({ userContent: content, answer: "", sources: [] });
+
+      let answer = "";
+      let sources: Source[] = [];
+      let sessionId: number | null = null;
+      let latencyMs: number | null = null;
+
       try {
-        const { data } = await client.post("/api/chat/query", {
-          message: content,
-          session_id: activeSessionId,
+        const token = localStorage.getItem("token");
+        const response = await fetch(`${API_BASE_URL}/api/chat/query/stream`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ message: content, session_id: activeSessionId }),
         });
+        if (!response.ok || !response.body) {
+          throw new Error(`Stream failed (${response.status})`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const { events, rest } = parseSseFrames(buffer);
+          buffer = rest;
+          for (const { event, data } of events) {
+            if (event === "sources") {
+              sources = data.sources ?? [];
+              setStreaming((prev) => (prev ? { ...prev, sources } : prev));
+            } else if (event === "delta") {
+              answer += data.text ?? "";
+              setStreaming((prev) => (prev ? { ...prev, answer } : prev));
+            } else if (event === "done") {
+              sessionId = data.session_id;
+              latencyMs = data.latency_ms ?? null;
+            }
+          }
+        }
+        if (sessionId === null) {
+          throw new Error("Stream ended without a done event");
+        }
 
         const newUserMessage: ChatMessage = {
           role: "user",
@@ -83,18 +156,18 @@ export function useChat() {
         };
         const newAssistantMessage: ChatMessage = {
           role: "assistant",
-          content: data.answer,
-          sources: data.sources,
+          content: answer,
+          sources,
           createdAt: new Date().toISOString(),
-          latencyMs: data.latency_ms,
+          latencyMs,
         };
 
         setSessions((prev) => {
-          const sessionIndex = prev.findIndex((session) => session.sessionId === data.session_id);
+          const sessionIndex = prev.findIndex((session) => session.sessionId === sessionId);
           if (sessionIndex === -1) {
             return [
               {
-                sessionId: data.session_id,
+                sessionId: sessionId as number,
                 title: content.slice(0, 36) || "New session",
                 createdAt: new Date().toISOString(),
                 messages: [newUserMessage, newAssistantMessage],
@@ -109,10 +182,11 @@ export function useChat() {
           };
           return updated;
         });
-        setActiveSessionId((prev) => prev ?? data.session_id);
+        setActiveSessionId((prev) => prev ?? sessionId);
       } catch (err: any) {
-        setError(err?.response?.data?.error || "Failed to send message.");
+        setError(err?.message || "Failed to send message.");
       } finally {
+        setStreaming(null);
         setLoading(false);
       }
     },
@@ -130,6 +204,7 @@ export function useChat() {
     setActiveSessionId,
     loading,
     error,
+    streaming,
     sendMessage,
     createSession,
     reloadHistory: loadHistory,

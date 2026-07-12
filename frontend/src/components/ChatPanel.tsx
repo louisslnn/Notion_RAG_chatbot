@@ -11,6 +11,7 @@ function ChatPanel() {
     setActiveSessionId,
     loading,
     error,
+    streaming,
     sendMessage,
     createSession,
   } = useChat();
@@ -21,7 +22,7 @@ function ChatPanel() {
     if (messageEndRef.current) {
       messageEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [activeSession?.messages]);
+  }, [activeSession?.messages, streaming?.answer, streaming?.sources]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -79,9 +80,29 @@ function ChatPanel() {
               />
             ))}
           </AnimatePresence>
+          {streaming && (
+            <>
+              <MessageBubble
+                role="user"
+                content={streaming.userContent}
+                createdAt={new Date().toISOString()}
+                latencyMs={null}
+              />
+              {/* Sources arrive before the first token; the answer grows live. */}
+              {(streaming.sources.length > 0 || streaming.answer) && (
+                <MessageBubble
+                  role="assistant"
+                  content={streaming.answer || "…"}
+                  createdAt={new Date().toISOString()}
+                  sources={streaming.sources}
+                  latencyMs={null}
+                />
+              )}
+            </>
+          )}
           <div ref={messageEndRef} />
           {error ? <div className="rounded bg-error/10 p-3 text-sm text-error">{error}</div> : null}
-          {!activeSession?.messages.length && (
+          {!activeSession?.messages.length && !streaming && (
             <div className="flex h-full items-center justify-center text-sm text-muted">
               Start a conversation to see responses and rich source citations.
             </div>

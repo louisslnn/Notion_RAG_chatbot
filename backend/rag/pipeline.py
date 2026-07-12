@@ -250,6 +250,39 @@ class RAGPipeline:
             return self.rewriter.condense(query, history), "anaphoric"
         return self.rewriter.rewrite(query), reason or "always"
 
+    @staticmethod
+    def _build_source_entries(hits: list[dict], k: int) -> tuple[list[str], list[dict]]:
+        chunks = []
+        source_entries = []
+        for hit in hits[: max(3, k)]:
+            content = hit["content"]
+            metadata = hit["metadata"]
+            score = hit["score"]
+            chunks.append(content)
+            confidence = min(1.0, max(0.0, score))
+            entry = {
+                "source": metadata.get("source", "unknown"),
+                "score": score,
+                "confidence": round(confidence, 3),
+                "metadata": metadata,
+                "snippet": content[:280] + ("..." if len(content) > 280 else ""),
+                # Full chunk text for internal consumers (eval judge); the HTTP
+                # routes strip it before persisting or returning sources.
+                "content": content,
+            }
+            for key in ("note_title", "heading_path", "note_path"):
+                value = metadata.get(key)
+                if value:
+                    entry[key] = value
+            source_entries.append(entry)
+        return chunks, source_entries
+
+    def _below_rerank_threshold(self, hits: list[dict]) -> bool:
+        if not self.config.rerank_enabled:
+            return False
+        best_score = max(hit["metadata"].get("rerank_score", 0.0) for hit in hits)
+        return best_score < self.config.rerank_threshold
+
     def query(
         self,
         query: str,
@@ -281,44 +314,20 @@ class RAGPipeline:
                 "rewrite_reason": reason,
             }
 
-        chunks = []
-        source_entries = []
-        for hit in hits[: max(3, k)]:
-            content = hit["content"]
-            metadata = hit["metadata"]
-            score = hit["score"]
-            chunks.append(content)
-            confidence = min(1.0, max(0.0, score))
-            entry = {
-                "source": metadata.get("source", "unknown"),
-                "score": score,
-                "confidence": round(confidence, 3),
-                "metadata": metadata,
-                "snippet": content[:280] + ("..." if len(content) > 280 else ""),
-                # Full chunk text for internal consumers (eval judge); the HTTP
-                # routes strip it before persisting or returning sources.
-                "content": content,
-            }
-            for key in ("note_title", "heading_path", "note_path"):
-                value = metadata.get(key)
-                if value:
-                    entry[key] = value
-            source_entries.append(entry)
+        chunks, source_entries = self._build_source_entries(hits, k)
 
         # The binary LLM grader is replaced by a threshold on the cross-encoder
         # score: if no chunk clears it, the pipeline says it found nothing.
-        if self.config.rerank_enabled:
-            best_score = max(hit["metadata"].get("rerank_score", 0.0) for hit in hits)
-            if best_score < self.config.rerank_threshold:
-                return {
-                    "answer": (
-                        "Retrieved notes do not appear relevant. Refine the query or add documents."
-                    ),
-                    "sources": source_entries[:3],
-                    "query_original": query,
-                    "query_rewritten": rewritten_query,
-                    "rewrite_reason": reason,
-                }
+        if self._below_rerank_threshold(hits):
+            return {
+                "answer": (
+                    "Retrieved notes do not appear relevant. Refine the query or add documents."
+                ),
+                "sources": source_entries[:3],
+                "query_original": query,
+                "query_rewritten": rewritten_query,
+                "rewrite_reason": reason,
+            }
 
         answer = self.answerer.generate(rewritten_query, chunks)
         return {
@@ -328,6 +337,58 @@ class RAGPipeline:
             "query_rewritten": rewritten_query,
             "rewrite_reason": reason,
         }
+
+    def stream_query(
+        self,
+        query: str,
+        *,
+        user_id: int,
+        top_k: int | None = None,
+        history: list[dict] | None = None,
+    ):
+        """Streaming variant of query(): yields 'sources' then 'delta' events.
+
+        Events: {"type": "sources", "sources", "query_rewritten",
+        "rewrite_reason"} as soon as retrieval is done, then one
+        {"type": "delta", "text"} per answer fragment.
+        """
+        vectorstore = self._load_vectorstore()
+        if self._collection_count(vectorstore) == 0:
+            yield {"type": "sources", "sources": [], "query_rewritten": None}
+            yield {
+                "type": "delta",
+                "text": "Knowledge base is empty. Upload documents or sync Notion to get started.",
+            }
+            return
+
+        rewritten_query, reason = self._maybe_rewrite(query, history or [])
+        k = top_k or self.config.final_k
+        hits = self.retrieve(rewritten_query, user_id=user_id, top_k=k)
+        chunks, source_entries = self._build_source_entries(hits, k)
+
+        yield {
+            "type": "sources",
+            "sources": source_entries[:3],
+            "query_rewritten": rewritten_query,
+            "rewrite_reason": reason,
+        }
+
+        if not hits:
+            yield {"type": "delta", "text": "No relevant documents were found for the query."}
+            return
+        if self._below_rerank_threshold(hits):
+            yield {
+                "type": "delta",
+                "text": (
+                    "Retrieved notes do not appear relevant. Refine the query or add documents."
+                ),
+            }
+            return
+
+        yield from (
+            {"type": "delta", "text": text}
+            for text in self.answerer.generate_stream(rewritten_query, chunks)
+        )
 
 
 _pipeline: RAGPipeline | None = None

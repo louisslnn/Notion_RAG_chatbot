@@ -1,6 +1,7 @@
+import json
 import time
 
-from flask import current_app, jsonify, request
+from flask import Response, current_app, jsonify, request, stream_with_context
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from ..extensions import db, limiter
@@ -86,6 +87,88 @@ def query_chat():
             "rewrite_reason": result.get("rewrite_reason"),
             "latency_ms": round(latency_ms, 2),
         }
+    )
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@chat_bp.route("/query/stream", methods=["POST"])
+@jwt_required()
+@limiter.limit(lambda: current_app.config.get("RATE_LIMIT"))
+def query_chat_stream():
+    """SSE variant of /query: 'sources' event, then 'delta' events, then 'done'.
+
+    DB persistence (messages, usage log) happens once the stream is complete.
+    The non-streaming route stays untouched (used by the eval harness).
+    """
+    payload = request.get_json() or {}
+    message = payload.get("message", "").strip()
+    session_id = payload.get("session_id")
+    title = payload.get("title")
+
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+
+    user_id = int(get_jwt_identity())
+    pipeline = get_pipeline(
+        persist_directory=current_app.config["VECTOR_STORE_FOLDER"],
+        top_k=current_app.config["RAG_TOP_K"],
+    )
+
+    session = _get_or_create_session(user_id, session_id, title)
+    window = pipeline.config.history_window
+    chat_history = [
+        {"role": msg.role, "content": msg.content} for msg in session.messages[-window:]
+    ]
+    # The generator may run after the request transaction is torn down:
+    # persist the session row now and only carry its primary key inside.
+    db.session.commit()
+    session_pk = session.id
+
+    def generate():
+        start = time.perf_counter()
+        answer_parts: list[str] = []
+        public_sources: list[dict] = []
+
+        for event in pipeline.stream_query(message, user_id=user_id, history=chat_history):
+            if event["type"] == "sources":
+                public_sources = _public_sources(event["sources"])
+                yield _sse(
+                    "sources",
+                    {
+                        "sources": public_sources,
+                        "query_rewritten": event.get("query_rewritten"),
+                        "rewrite_reason": event.get("rewrite_reason"),
+                    },
+                )
+            elif event["type"] == "delta":
+                answer_parts.append(event["text"])
+                yield _sse("delta", {"text": event["text"]})
+
+        latency_ms = (time.perf_counter() - start) * 1000
+        db.session.add(ChatMessage(session_id=session_pk, role="user", content=message))
+        db.session.add(
+            ChatMessage(
+                session_id=session_pk,
+                role="assistant",
+                content="".join(answer_parts),
+                sources=public_sources,
+                response_time_ms=latency_ms,
+            )
+        )
+        db.session.add(
+            UsageLog(user_id=user_id, endpoint="chat.query.stream", latency_ms=latency_ms)
+        )
+        db.session.commit()
+
+        yield _sse("done", {"session_id": session_pk, "latency_ms": round(latency_ms, 2)})
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

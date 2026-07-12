@@ -11,6 +11,10 @@ class FakeAnswerer:
     def generate(self, question, chunks):
         return f"Answer based on {len(chunks)} chunk(s)."
 
+    def generate_stream(self, question, chunks):
+        yield "Answer based on "
+        yield f"{len(chunks)} chunk(s)."
+
 
 class FakeRewriter:
     def rewrite(self, original_query):
