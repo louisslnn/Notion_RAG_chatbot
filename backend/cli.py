@@ -8,6 +8,7 @@ from .evals.answers import evaluate_answers
 from .evals.generator import GoldsetGenerator
 from .evals.goldset import load_goldset, save_goldset
 from .evals.retrieval import evaluate_retrieval
+from .evals.runs import DEFAULT_RUNS_DIR, build_config, load_runs, markdown_report, write_run
 from .models import User
 from .rag import get_pipeline
 from .rag.sync import sync_vault
@@ -109,14 +110,20 @@ def _echo_metric_lines(result: dict) -> None:
 )
 @click.option("--user", "email", required=True, help="Email of the user whose index is evaluated.")
 @click.option("--k", default=5, show_default=True, help="Chunks retrieved per question.")
-def eval_retrieval_command(goldset_path: str, email: str, k: int):
+@click.option("--runs-dir", default=DEFAULT_RUNS_DIR, show_default=True)
+def eval_retrieval_command(goldset_path: str, email: str, k: int, runs_dir: str):
     """Evaluate retrieval quality (recall@k, MRR, nDCG@5). No LLM call."""
     user = _require_user(email)
     items = load_goldset(goldset_path)
-    result = evaluate_retrieval(items, pipeline=_app_pipeline(), user_id=user.id, k=k)
+    pipeline = _app_pipeline()
+    result = evaluate_retrieval(items, pipeline=pipeline, user_id=user.id, k=k)
 
     click.echo(f"Retrieval eval: {result['questions_evaluated']} questions (k={k})")
     _echo_metric_lines(result)
+
+    config = build_config(pipeline, k=k, goldset=goldset_path)
+    run_path = write_run("retrieval", config, result, runs_dir=runs_dir)
+    click.echo(f"Run written to {run_path}")
 
 
 @rag_cli.command("eval-answers")
@@ -125,12 +132,29 @@ def eval_retrieval_command(goldset_path: str, email: str, k: int):
 )
 @click.option("--user", "email", required=True, help="Email of the user whose index is evaluated.")
 @click.option("--limit", default=None, type=int, help="Evaluate only the first N questions.")
-def eval_answers_command(goldset_path: str, email: str, limit: int | None):
+@click.option("--runs-dir", default=DEFAULT_RUNS_DIR, show_default=True)
+def eval_answers_command(goldset_path: str, email: str, limit: int | None, runs_dir: str):
     """End-to-end evaluation with an LLM judge (needs ANTHROPIC_API_KEY)."""
     user = _require_user(email)
     items = load_goldset(goldset_path)
-    result = evaluate_answers(items, pipeline=_app_pipeline(), user_id=user.id, limit=limit)
+    pipeline = _app_pipeline()
+    result = evaluate_answers(items, pipeline=pipeline, user_id=user.id, limit=limit)
 
     click.echo(f"Answer eval: {result['questions_evaluated']} questions")
     for name, value in result["metrics"].items():
         click.echo(f"  {name}: {value if value is not None else 'n/a'}")
+
+    config = build_config(pipeline, limit=limit, goldset=goldset_path)
+    run_path = write_run("answers", config, result, runs_dir=runs_dir)
+    click.echo(f"Run written to {run_path}")
+
+
+@rag_cli.command("eval-report")
+@click.option("--runs-dir", default=DEFAULT_RUNS_DIR, show_default=True)
+@click.option("--last", default=None, type=int, help="Only include the N most recent runs.")
+def eval_report_command(runs_dir: str, last: int | None):
+    """Markdown comparison table of past eval runs (runs as columns)."""
+    runs = load_runs(runs_dir)
+    if last:
+        runs = runs[-last:]
+    click.echo(markdown_report(runs))
