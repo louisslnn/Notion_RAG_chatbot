@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from flask import jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
@@ -20,7 +20,7 @@ def summary():
     )
     total_docs = UploadedDocument.query.filter_by(user_id=user_id).count()
 
-    last_7_days = datetime.utcnow() - timedelta(days=7)
+    last_7_days = datetime.now(UTC) - timedelta(days=7)
     last_week_usage = (
         UsageLog.query.filter(UsageLog.user_id == user_id, UsageLog.created_at >= last_7_days)
         .order_by(UsageLog.created_at.desc())

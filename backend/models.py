@@ -1,8 +1,12 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func
 
 from .extensions import db
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 class User(db.Model):
@@ -11,7 +15,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
     last_login_at = db.Column(db.DateTime)
 
     chat_sessions = db.relationship(
@@ -35,7 +39,7 @@ class ChatSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     title = db.Column(db.String(255))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     user = db.relationship("User", back_populates="chat_sessions")
     messages = db.relationship(
@@ -60,7 +64,7 @@ class ChatMessage(db.Model):
     content = db.Column(db.Text, nullable=False)
     sources = db.Column(db.JSON, nullable=True)
     response_time_ms = db.Column(db.Float, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     session = db.relationship("ChatSession", back_populates="messages")
 
@@ -75,7 +79,7 @@ class UploadedDocument(db.Model):
     content_hash = db.Column(db.String(64), nullable=False, index=True)
     chunk_count = db.Column(db.Integer, default=0, nullable=False)
     extra_metadata = db.Column(db.JSON, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     user = db.relationship("User", back_populates="documents")
 
@@ -91,7 +95,7 @@ class SyncedNote(db.Model):
     note_path = db.Column(db.String(1024), nullable=False)
     content_hash = db.Column(db.String(64), nullable=False)
     chunk_ids = db.Column(db.JSON, nullable=False, default=list)
-    last_synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_synced_at = db.Column(db.DateTime, default=_utcnow, nullable=False)
 
     user = db.relationship("User", back_populates="synced_notes")
 
@@ -107,7 +111,7 @@ class UsageLog(db.Model):
     endpoint = db.Column(db.String(128), nullable=False)
     latency_ms = db.Column(db.Float, nullable=False)
     tokens_used = db.Column(db.Integer)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=_utcnow, nullable=False, index=True)
 
     user = db.relationship("User", back_populates="usage_logs")
 

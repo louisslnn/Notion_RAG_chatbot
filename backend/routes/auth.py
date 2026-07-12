@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from flask import current_app, jsonify, request
 from flask_cors import cross_origin
@@ -48,7 +48,7 @@ def login():
     if not user or not verify_password(password, user.password_hash):
         return jsonify({"error": "invalid credentials"}), 401
 
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(UTC)
     db.session.commit()
 
     access_token = create_access_token(identity=str(user.id))

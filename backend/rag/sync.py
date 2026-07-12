@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -65,7 +65,7 @@ def sync_vault(
         if record:
             record.content_hash = content_hash
             record.chunk_ids = chunk_ids
-            record.last_synced_at = datetime.utcnow()
+            record.last_synced_at = datetime.now(UTC)
         else:
             db.session.add(
                 SyncedNote(
@@ -73,7 +73,7 @@ def sync_vault(
                     note_path=note_path,
                     content_hash=content_hash,
                     chunk_ids=chunk_ids,
-                    last_synced_at=datetime.utcnow(),
+                    last_synced_at=datetime.now(UTC),
                 )
             )
 

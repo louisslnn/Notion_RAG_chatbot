@@ -37,11 +37,31 @@ class RAGPipeline:
         self._lock = RLock()
         self._vectorstore: Chroma | None = None
         self.embedding = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
-        self.answerer = AnswerGenerator()
-        self.grader = ContextGrader()
-        self.rewriter = QueryRewriter()
+        # LLM clients are created lazily so retrieval-only usage (retrieve(),
+        # ingestion, evals) works without an Anthropic API key.
+        self._answerer: AnswerGenerator | None = None
+        self._grader: ContextGrader | None = None
+        self._rewriter: QueryRewriter | None = None
 
         self.persist_directory.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def answerer(self) -> AnswerGenerator:
+        if self._answerer is None:
+            self._answerer = AnswerGenerator()
+        return self._answerer
+
+    @property
+    def grader(self) -> ContextGrader:
+        if self._grader is None:
+            self._grader = ContextGrader()
+        return self._grader
+
+    @property
+    def rewriter(self) -> QueryRewriter:
+        if self._rewriter is None:
+            self._rewriter = QueryRewriter()
+        return self._rewriter
 
     def _load_vectorstore(self) -> Chroma:
         if self._vectorstore is None:
@@ -92,6 +112,23 @@ class RAGPipeline:
         added = self.ingest_documents(docs)
         return {"chunks_added": added, "content_hash": hash_content(content)}
 
+    def retrieve(self, query: str, *, user_id: int, top_k: int | None = None) -> list[dict]:
+        """User-filtered vector search only: no rewriter, no grader, no answerer.
+
+        Returns one dict per chunk: {content, score, metadata}, best first.
+        """
+        vectorstore = self._load_vectorstore()
+        if self._collection_count(vectorstore) == 0:
+            return []
+        k = top_k or self.top_k
+        results = vectorstore.similarity_search_with_relevance_scores(
+            query, k=k, filter={"user_id": user_id}
+        )
+        return [
+            {"content": doc.page_content, "score": float(score), "metadata": doc.metadata}
+            for doc, score in results
+        ]
+
     def query(self, query: str, *, user_id: int, top_k: int | None = None) -> dict:
         vectorstore = self._load_vectorstore()
         if self._collection_count(vectorstore) == 0:
@@ -105,11 +142,9 @@ class RAGPipeline:
 
         rewritten_query = self.rewriter.rewrite(query)
         k = top_k or self.top_k
-        results = vectorstore.similarity_search_with_relevance_scores(
-            rewritten_query, k=k, filter={"user_id": user_id}
-        )
+        hits = self.retrieve(rewritten_query, user_id=user_id, top_k=k)
 
-        if not results:
+        if not hits:
             return {
                 "answer": "No relevant documents were found for the query.",
                 "sources": [],
@@ -119,18 +154,21 @@ class RAGPipeline:
 
         chunks = []
         source_entries = []
-        for doc, score in results[: max(3, k)]:
-            chunks.append(doc.page_content)
-            confidence = min(1.0, max(0.0, float(score)))
+        for hit in hits[: max(3, k)]:
+            content = hit["content"]
+            metadata = hit["metadata"]
+            score = hit["score"]
+            chunks.append(content)
+            confidence = min(1.0, max(0.0, score))
             entry = {
-                "source": doc.metadata.get("source", "unknown"),
+                "source": metadata.get("source", "unknown"),
                 "score": score,
                 "confidence": round(confidence, 3),
-                "metadata": doc.metadata,
-                "snippet": doc.page_content[:280] + ("..." if len(doc.page_content) > 280 else ""),
+                "metadata": metadata,
+                "snippet": content[:280] + ("..." if len(content) > 280 else ""),
             }
             for key in ("note_title", "heading_path", "note_path"):
-                value = doc.metadata.get(key)
+                value = metadata.get(key)
                 if value:
                     entry[key] = value
             source_entries.append(entry)
