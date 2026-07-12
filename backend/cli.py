@@ -1,4 +1,5 @@
 from collections import Counter
+from dataclasses import replace
 
 import click
 from flask import current_app
@@ -11,6 +12,8 @@ from .evals.retrieval import evaluate_retrieval
 from .evals.runs import DEFAULT_RUNS_DIR, build_config, load_runs, markdown_report, write_run
 from .models import User
 from .rag import get_pipeline
+from .rag.pipeline import RAGPipeline
+from .rag.retrieval_config import REWRITE_MODES, RetrievalConfig
 from .rag.sync import sync_vault
 
 obsidian_cli = AppGroup("obsidian", help="Obsidian vault commands.")
@@ -29,6 +32,30 @@ def _app_pipeline():
         persist_directory=current_app.config["VECTOR_STORE_FOLDER"],
         top_k=current_app.config["RAG_TOP_K"],
     )
+
+
+def _retrieval_config_options(command):
+    """Ablation flags shared by the eval commands (None = keep env value)."""
+    options = [
+        click.option("--hybrid/--no-hybrid", "hybrid_enabled", default=None),
+        click.option("--rerank/--no-rerank", "rerank_enabled", default=None),
+        click.option("--rewrite-mode", type=click.Choice(REWRITE_MODES), default=None),
+        click.option("--candidate-k", type=int, default=None),
+        click.option("--final-k", type=int, default=None),
+        click.option("--rerank-threshold", type=float, default=None),
+    ]
+    for option in reversed(options):
+        command = option(command)
+    return command
+
+
+def _eval_pipeline(**overrides) -> RAGPipeline:
+    """A fresh pipeline whose config is env values + CLI overrides."""
+    config = RetrievalConfig.from_env()
+    provided = {key: value for key, value in overrides.items() if value is not None}
+    if provided:
+        config = replace(config, **provided)
+    return RAGPipeline(persist_directory=current_app.config["VECTOR_STORE_FOLDER"], config=config)
 
 
 @obsidian_cli.command("sync")
@@ -111,11 +138,12 @@ def _echo_metric_lines(result: dict) -> None:
 @click.option("--user", "email", required=True, help="Email of the user whose index is evaluated.")
 @click.option("--k", default=5, show_default=True, help="Chunks retrieved per question.")
 @click.option("--runs-dir", default=DEFAULT_RUNS_DIR, show_default=True)
-def eval_retrieval_command(goldset_path: str, email: str, k: int, runs_dir: str):
+@_retrieval_config_options
+def eval_retrieval_command(goldset_path: str, email: str, k: int, runs_dir: str, **overrides):
     """Evaluate retrieval quality (recall@k, MRR, nDCG@5). No LLM call."""
     user = _require_user(email)
     items = load_goldset(goldset_path)
-    pipeline = _app_pipeline()
+    pipeline = _eval_pipeline(**overrides)
     result = evaluate_retrieval(items, pipeline=pipeline, user_id=user.id, k=k)
 
     click.echo(f"Retrieval eval: {result['questions_evaluated']} questions (k={k})")
@@ -133,11 +161,14 @@ def eval_retrieval_command(goldset_path: str, email: str, k: int, runs_dir: str)
 @click.option("--user", "email", required=True, help="Email of the user whose index is evaluated.")
 @click.option("--limit", default=None, type=int, help="Evaluate only the first N questions.")
 @click.option("--runs-dir", default=DEFAULT_RUNS_DIR, show_default=True)
-def eval_answers_command(goldset_path: str, email: str, limit: int | None, runs_dir: str):
+@_retrieval_config_options
+def eval_answers_command(
+    goldset_path: str, email: str, limit: int | None, runs_dir: str, **overrides
+):
     """End-to-end evaluation with an LLM judge (needs ANTHROPIC_API_KEY)."""
     user = _require_user(email)
     items = load_goldset(goldset_path)
-    pipeline = _app_pipeline()
+    pipeline = _eval_pipeline(**overrides)
     result = evaluate_answers(items, pipeline=pipeline, user_id=user.id, limit=limit)
 
     click.echo(f"Answer eval: {result['questions_evaluated']} questions")

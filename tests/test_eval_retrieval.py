@@ -114,7 +114,8 @@ def test_cli_eval_retrieval_writes_run_file(app, tmp_path, monkeypatch):
     assert len(run_files) == 1
     payload = json.loads(run_files[0].read_text(encoding="utf-8"))
     assert payload["run_type"] == "retrieval"
-    assert payload["config"]["top_k"]
+    assert payload["config"]["retrieval"]["final_k"]
+    assert "hybrid_enabled" in payload["config"]["retrieval"]
     assert payload["config"]["chunking"]["markdown_max_section_chars"]
     assert len(payload["questions"]) == 2
     assert {"expected_note_paths", "retrieved_note_paths"} <= set(payload["questions"][0])

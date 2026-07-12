@@ -1,5 +1,6 @@
 import os
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 from threading import RLock
 
@@ -10,6 +11,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from .answerer import AnswerGenerator
 from .grader import ContextGrader
 from .ingestion import chunk_content, documents_from_texts, hash_content
+from .retrieval_config import RetrievalConfig
 from .rewriter import QueryRewriter
 
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
@@ -31,9 +33,18 @@ def _sanitize_metadata(metadata: dict) -> dict:
 
 
 class RAGPipeline:
-    def __init__(self, persist_directory: str, top_k: int = 4):
+    def __init__(
+        self,
+        persist_directory: str,
+        top_k: int | None = None,
+        config: RetrievalConfig | None = None,
+    ):
         self.persist_directory = Path(persist_directory)
-        self.top_k = top_k
+        if config is None:
+            config = RetrievalConfig.from_env()
+            if top_k is not None:
+                config = replace(config, final_k=top_k)
+        self.config = config
         self._lock = RLock()
         self._vectorstore: Chroma | None = None
         self.embedding = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
@@ -120,7 +131,7 @@ class RAGPipeline:
         vectorstore = self._load_vectorstore()
         if self._collection_count(vectorstore) == 0:
             return []
-        k = top_k or self.top_k
+        k = top_k or self.config.final_k
         results = vectorstore.similarity_search_with_relevance_scores(
             query, k=k, filter={"user_id": user_id}
         )
@@ -141,7 +152,7 @@ class RAGPipeline:
             }
 
         rewritten_query = self.rewriter.rewrite(query)
-        k = top_k or self.top_k
+        k = top_k or self.config.final_k
         hits = self.retrieve(rewritten_query, user_id=user_id, top_k=k)
 
         if not hits:

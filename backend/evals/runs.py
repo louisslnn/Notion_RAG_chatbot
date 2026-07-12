@@ -1,5 +1,6 @@
 import json
 import subprocess
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,7 +26,7 @@ def build_config(pipeline: RAGPipeline, **extra) -> dict:
     """Snapshot of everything that can influence the numbers of a run."""
     return {
         "embedding_model": EMBEDDING_MODEL_NAME,
-        "top_k": pipeline.top_k,
+        "retrieval": asdict(pipeline.config),
         "answer_model": ANSWER_MODEL,
         "grader_model": GRADER_MODEL,
         "rewriter_model": REWRITER_MODEL,
