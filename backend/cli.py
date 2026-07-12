@@ -5,7 +5,8 @@ from flask import current_app
 from flask.cli import AppGroup
 
 from .evals.generator import GoldsetGenerator
-from .evals.goldset import save_goldset
+from .evals.goldset import load_goldset, save_goldset
+from .evals.retrieval import evaluate_retrieval
 from .models import User
 from .rag import get_pipeline
 from .rag.sync import sync_vault
@@ -90,3 +91,28 @@ def generate_goldset_command(vault_path: str, email: str, count: int, out_path: 
     by_tag = Counter(tag for item in items for tag in item.tags)
     click.echo(f"Wrote {len(items)} questions to {out_path} ({dict(by_tag)})")
     click.echo("This is a DRAFT: review every line by hand before renaming it goldset.jsonl.")
+
+
+def _echo_metric_lines(result: dict) -> None:
+    def _fmt(metrics: dict) -> str:
+        return "  ".join(f"{name}: {value:.3f}" for name, value in metrics.items())
+
+    click.echo(_fmt(result["metrics"]))
+    for tag, metrics in result.get("by_tag", {}).items():
+        click.echo(f"  [{tag}] {_fmt(metrics)}")
+
+
+@rag_cli.command("eval-retrieval")
+@click.option(
+    "--goldset", "goldset_path", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.option("--user", "email", required=True, help="Email of the user whose index is evaluated.")
+@click.option("--k", default=5, show_default=True, help="Chunks retrieved per question.")
+def eval_retrieval_command(goldset_path: str, email: str, k: int):
+    """Evaluate retrieval quality (recall@k, MRR, nDCG@5). No LLM call."""
+    user = _require_user(email)
+    items = load_goldset(goldset_path)
+    result = evaluate_retrieval(items, pipeline=_app_pipeline(), user_id=user.id, k=k)
+
+    click.echo(f"Retrieval eval: {result['questions_evaluated']} questions (k={k})")
+    _echo_metric_lines(result)
