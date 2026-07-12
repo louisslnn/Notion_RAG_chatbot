@@ -1,181 +1,148 @@
-# Notion RAG Chatbot Workspace
+# Obsidian RAG chatbot
 
-Developer-focused retrieval-augmented generation (RAG) workspace with account-based chat history, document ingestion, analytics, and a modern React interface.
+[![CI](https://github.com/louisslnn/Notion_RAG_chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/louisslnn/Notion_RAG_chatbot/actions/workflows/ci.yml)
 
-## Highlights
+A retrieval-augmented chatbot over a personal Obsidian vault. The distinctive
+part is not the chat: it is the **evaluation harness**. Every retrieval feature
+(hybrid search, cross-encoder reranking, conditional query rewriting) is a
+configuration flag, and its impact is measured on a hand-validated gold set
+before it is adopted — the ablation table below is the project's actual
+decision record, not an afterthought.
 
-- **Authentication & History** — JWT-secured API with per-user chat sessions and persisted transcripts.
-- **Vector Search Pipeline** — LangChain + Chroma store, query rewriting, relevance grading, and top-3 source citations with confidence.
-- **Document Ingestion** — Upload PDF/Markdown files, auto-chunk/encode, and track ingest metrics.
-- **Rate Limiting & Usage Tracking** — Flask-Limiter throttling plus per-endpoint telemetry for analytics.
-- **Modern UI** — Vite + React + Tailwind UI with responsive layouts, framer-motion micro-interactions, and engineer-friendly ergonomics.
+Flask + LangChain + Chroma backend, React/Vite frontend, streaming answers
+over SSE, strict per-user isolation end to end.
+
+## Demo
+
+![Demo](docs/demo.gif)
+
+Citations name the note and heading a chunk came from, and link straight back
+into Obsidian (`obsidian://open?...`):
+
+![Clickable citations](docs/citations.png)
+
+## Evaluation & ablations
+
+The harness ([methodology in `evals/README.md`](evals/README.md)) has three parts:
+
+1. a gold set of factual, multi-note and negative questions — LLM-drafted,
+   then **validated line by line by a human** before use;
+2. a retrieval-only eval (recall@1/3/5, MRR, nDCG@5) that runs without any
+   LLM call, so ablations are free and fast;
+3. an end-to-end eval where an LLM judge scores answer coverage and
+   faithfulness against the full retrieved chunks, plus refusal accuracy on
+   negative questions.
+
+Every run writes `evals/runs/{timestamp}_{git-sha}.json` with the complete
+pipeline configuration, so each number in the table is attributable to an
+exact commit and flag set. The table is the verbatim output of
+`flask rag eval-report --type retrieval` over the committed runs:
+
+<!--
+ABLATION TABLE — regenerate after syncing the vault and validating the gold set:
+
+  uv run flask --app backend.app rag eval-retrieval --goldset evals/goldset.jsonl --user <email> --no-hybrid --no-rerank
+  uv run flask --app backend.app rag eval-retrieval --goldset evals/goldset.jsonl --user <email> --hybrid    --no-rerank
+  uv run flask --app backend.app rag eval-retrieval --goldset evals/goldset.jsonl --user <email> --no-hybrid --rerank
+  uv run flask --app backend.app rag eval-retrieval --goldset evals/goldset.jsonl --user <email> --hybrid    --rerank
+  uv run flask --app backend.app rag eval-report --type retrieval
+
+Paste the markdown table here, then commit the run files together with the README
+so the numbers stay verifiable. Follow with 3-4 sentences of analysis: which
+component contributes what, at what latency cost.
+-->
+
+> **Status:** the ablation runs are executed against a private vault and are
+> committed to `evals/runs/` alongside this table. Until those runs land, no
+> numbers are shown here — every figure in this README must be reproducible
+> from a committed run file.
 
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Frontend [React SPA]
-        UI[Chat Interface]
-        Dash[Analytics Dashboard]
-        Upload[Doc Uploader]
+flowchart TB
+    subgraph Ingestion
+        Vault[Obsidian vault] -->|flask obsidian sync<br>hash-based incremental| Parser[Note parser<br>frontmatter · tags · wikilinks]
+        Uploads[PDF / MD / TXT uploads] --> Parser
+        Parser --> Chunker[Heading-aware chunking<br>heading_path metadata]
+        Chunker --> Chroma[(Chroma<br>dense vectors)]
+        Chroma -.->|rebuilt lazily per user| BM25[(BM25 index)]
     end
 
-    subgraph Backend [Flask API]
-        Auth[Auth & JWT]
-        ChatService[Chat Controller]
-        Docs[Document Service]
-        Analytics[Analytics Service]
-        RAG[RAG Pipeline]
-        DB[(PostgreSQL/SQLite)]
-        Vector[(Chroma Vector Store)]
-        Storage[/Document Store/]
+    subgraph Query path
+        UI[React chat] -->|SSE stream| API[Flask /api/chat/query/stream]
+        API --> Rewriter{Rewrite policy<br>always / auto / never}
+        Rewriter -->|anaphoric + history| Condense[Condense with history]
+        Rewriter --> Retrieve
+        Condense --> Retrieve[Dense top-k + BM25 top-k]
+        Retrieve --> RRF[Reciprocal Rank Fusion]
+        RRF --> Rerank[Cross-encoder rerank<br>bge-reranker-v2-m3]
+        Rerank -->|below threshold| Refuse[No relevant notes]
+        Rerank --> Answer[Streaming answer<br>claude-sonnet-4-6]
+        Answer -->|sources event first,<br>then token deltas| UI
     end
 
-    UI -->|POST /api/chat/query| ChatService
-    Dash -->|GET /api/analytics/summary| Analytics
-    Upload -->|POST /api/documents/upload| Docs
-    Auth <---> |JWT| ChatService
-    ChatService -->|store| DB
-    Docs -->|chunks| RAG
-    RAG <--> Vector
-    Docs -->|files| Storage
-    Analytics -->|usage logs| DB
+    subgraph Evaluation
+        Gold[goldset.jsonl<br>human-validated] --> EvalR[eval-retrieval<br>recall / MRR / nDCG]
+        Gold --> EvalA[eval-answers<br>LLM judge]
+        EvalR & EvalA --> Runs[(evals/runs/*.json<br>config snapshot + git sha)]
+        Runs --> Report[eval-report<br>ablation table]
+    end
 ```
 
-## Project Structure
+## Design decisions
 
-```
-backend/
-  app.py                 # Flask app factory
-  config.py              # Runtime configuration & defaults
-  extensions.py          # Shared Flask extensions (db, jwt, limiter, cors)
-  models.py              # SQLAlchemy models (User, ChatSession, ChatMessage, UploadedDocument, UsageLog)
-  routes/                # Modular blueprints
-    auth.py              # /api/auth/login, /register, /me
-    chat.py              # /api/chat/query, /history
-    documents.py         # /api/documents/upload, list ingest metadata
-    analytics.py         # /api/analytics/summary
-  rag/                   # RAG engine components
-    pipeline.py          # RAGPipeline (rewrite → retrieve → grade → answer)
-    ingestion.py         # Upload parsing, chunking, hashing utilities
-    answerer.py          # LLM answer generator (Anthropic by default)
-    grader.py            # Context relevance grader
-    rewriter.py          # Query rewriting helper
-    prompts.py           # Prompt templates
-    notion.py            # Optional Notion sync utilities
-  security.py            # Password hashing helpers
+- **Heading-aware chunking.** Markdown is split along its heading structure
+  instead of a fixed character window; each chunk carries a `heading_path`
+  ("Architecture > Backend"). Chunks align with how notes are actually
+  organized, and citations can point at a section rather than a file.
+- **RRF rather than learned score weighting.** Dense and BM25 scores live on
+  incomparable scales; Reciprocal Rank Fusion only uses ranks, has one
+  well-studied constant (k=60), and needs no training data — the right
+  trade-off at this corpus size.
+- **Rerank threshold instead of an LLM relevance grader.** The original
+  binary LLM grader cost one API call per query and returned an opaque
+  yes/no. A sigmoid-normalized cross-encoder score with a configurable
+  threshold is free of API cost, continuous, and inspectable in the eval runs.
+- **BM25 rebuilt from Chroma, not persisted.** Chroma stays the single source
+  of truth; per-user BM25 indexes are rebuilt lazily after any
+  ingestion/deletion. Rebuild cost is milliseconds at personal-vault scale,
+  and an entire class of stale-index bugs disappears.
+- **Per-user isolation at every layer.** Chunks carry a `user_id` enforced at
+  ingestion, dense search filters on it, BM25 indexes are per user, and the
+  regression test proves two users can never retrieve each other's notes.
+- **Hash-based incremental sync.** Each note's content hash is tracked in
+  SQL together with its chunk ids; unchanged notes are skipped without any
+  embedding call, modified notes replace exactly their old chunks, deleted
+  notes are purged. Re-syncing an unchanged vault is near-instant.
 
-frontend/
-  package.json           # React/Vite dependencies & scripts
-  src/
-    App.tsx              # SPA routes with protected layout
-    api/client.ts        # Axios client with JWT injection
-    components/
-      ChatPanel.tsx      # Chat UI with source citations & animations
-      Dashboard.tsx      # Usage analytics and session summaries
-      AuthProvider.tsx   # Context provider for auth state
-      Layout.tsx         # Shell with responsive navigation
-      MessageBubble.tsx  # Message rendering + metadata
-      SourceList.tsx     # Source confidence cards
-    hooks/useChat.ts     # Chat session state + REST integrations
-    pages/               # Route-level views (Login, Chat, Dashboard, Upload)
-    styles/global.css    # Tailwind base + theme overrides
-storage/
-  uploads/               # Persisted raw document uploads
-  vectorstore/           # Chroma persistent index
-requirements.txt         # Python deps
+## Quickstart
+
+```sh
+cp .env.example .env          # set JWT_SECRET_KEY and ANTHROPIC_API_KEY
+docker compose up --build     # backend on :8000, frontend on :5173
+# then sync your vault:
+docker compose exec backend flask --app backend.app obsidian sync \
+    --vault /path/to/vault --user you@example.com
 ```
 
-## Backend Setup
+Local development without Docker, full API reference, CLI commands and every
+environment variable: see [`docs/architecture.md`](docs/architecture.md).
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+## Limitations and future work
 
-export FLASK_APP=backend.app:create_app
-export FLASK_ENV=development
-# set JWT_SECRET_KEY, ANTHROPIC_API_KEY, etc.
-flask run
-```
+- **Faithfulness is LLM-judged.** The judge sees the full retrieved chunks
+  (not truncated snippets), but it remains a model grading a model; scores
+  are comparative signals across runs, not absolute truths.
+- **Single-user gold set.** The gold set is built from one vault; results
+  quantify component impact on that corpus, not general-domain performance.
+- **Graph-aware retrieval is the natural next step.** Wikilink targets are
+  already extracted and stored per chunk (`outlinks`); expanding retrieval
+  along the note graph is measurable with the existing harness.
+- **Cross-encoder latency.** Reranking runs on CPU and adds measurable
+  latency per query; the ablation table is the place to judge whether the
+  quality gain pays for it.
 
-Configuration is driven by environment variables:
+## License
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `DATABASE_URL` | SQLAlchemy database URL | `sqlite:///instance/app.db` |
-| `JWT_SECRET_KEY` | Token signing secret | `change-me` |
-| `RATE_LIMIT` | Global limiter per user/IP | `60/minute` |
-| `VECTOR_STORE_FOLDER` | Persistent Chroma path | `storage/vectorstore` |
-| `UPLOAD_FOLDER` | Raw document storage | `storage/uploads` |
-| `EMBEDDING_MODEL_NAME` | Sentence embedding model | `sentence-transformers/all-MiniLM-L6-v2` |
-| `FRONTEND_ORIGINS` | Allowed CORS origins | `http://localhost:5173` |
-| `ANTHROPIC_API_KEY` | Required Anthropic API key | _none_ |
-| `NOTION_TOKEN` | Optional Notion sync token | _none_ |
-
-> ℹ️ The database is auto-created on first boot; switch `DATABASE_URL` to PostgreSQL in production.
-
-## API Reference
-
-| Method & Path | Description |
-| --- | --- |
-| `POST /api/auth/register` | `{ email, password } → { access_token, user }` |
-| `POST /api/auth/login` | `{ email, password } → { access_token, user }` |
-| `GET /api/auth/me` | Returns authenticated user |
-| `POST /api/chat/query` | `{ message, session_id? } → answer, sources, latency` |
-| `GET /api/chat/history` | Returns sessions with nested messages |
-| `POST /api/documents/upload` | Multipart upload (PDF/Markdown/TXT) |
-| `GET /api/documents` | List uploaded documents + chunk counts |
-| `GET /api/analytics/summary` | Usage totals, averages, 7-day call trend |
-
-Responses include the top 3 ranked sources with confidence (0–1.0) and content snippets for rapid triage.
-
-## Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run dev   # launches on http://localhost:5173
-```
-
-The React SPA expects the backend on `http://localhost:5000` (override with `VITE_API_BASE_URL`).
-
-### Notable Components
-
-- `src/components/ChatPanel.tsx` — Live chat window with source callouts, latency badges, and smooth scrolling.
-- `src/components/Dashboard.tsx` — Analytics cards, recent session rollup, and usage timeline.
-- `src/hooks/useChat.ts` — Centralized session store, history loader, and message dispatcher.
-
-## Adding Your Own Documents
-
-1. Navigate to the **Upload Docs** tab in the UI.
-2. Drop a PDF or Markdown file; the backend will:
-   - extract text (PyPDF2 / Markdown parser),
-   - chunk it with LangChain's `RecursiveCharacterTextSplitter`,
-   - embed and persist the vectors in Chroma,
-   - log ingestion metrics and expose them via analytics.
-3. Uploaded docs become searchable immediately; revisit the chat to query against the new knowledge.
-
-Alternatively, use the API directly:
-
-```bash
-curl -X POST http://localhost:5000/api/documents/upload \
-  -H "Authorization: Bearer <token>" \
-  -F "file=@/path/to/doc.pdf"
-```
-
-## Rate Limiting & Monitoring
-
-- `Flask-Limiter` enforces the `RATE_LIMIT` policy across auth/chat/upload endpoints.
-- Each API hit records a `UsageLog` row (latency, endpoint, timestamp) feeding the dashboard.
-- Average response time, total calls, and last-7-day breakdown are exposed via `/api/analytics/summary`.
-
-## Developer Notes
-
-- Vector store persistence lives in `storage/vectorstore`; delete to rebuild from scratch.
-- `backend/rag/notion.py` contains helpers to sync Notion pages if `NOTION_TOKEN` is set — integrate as needed.
-- For production, run the API behind `gunicorn`/`uvicorn` and host the Vite build output (`npm run build`).
-- Extend the `User` model or attach role metadata for multi-tenant scenarios; rate limits can also be per-plan.
-
-Happy building! Contributions and follow-up refinements are welcome.
-
+MIT — see [LICENSE](LICENSE).
