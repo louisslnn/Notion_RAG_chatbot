@@ -20,6 +20,9 @@ node_modules/
 dist/
 frontend/.eslintcache
 
+# Evals: only the human-validated goldset is tracked
+evals/*.draft.jsonl
+
 # Tooling caches
 .pytest_cache/
 .ruff_cache/
