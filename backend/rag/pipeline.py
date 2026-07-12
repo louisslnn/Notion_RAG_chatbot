@@ -9,6 +9,8 @@ from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from .answerer import AnswerGenerator
+from .bm25 import UserBM25Index
+from .fusion import rrf_fuse
 from .grader import ContextGrader
 from .ingestion import chunk_content, documents_from_texts, hash_content
 from .retrieval_config import RetrievalConfig
@@ -47,6 +49,8 @@ class RAGPipeline:
         self.config = config
         self._lock = RLock()
         self._vectorstore: Chroma | None = None
+        # Per-user BM25 indexes, rebuilt lazily from Chroma after invalidation.
+        self._bm25_cache: dict[int, UserBM25Index] = {}
         self.embedding = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
         # LLM clients are created lazily so retrieval-only usage (retrieve(),
         # ingestion, evals) works without an Anthropic API key.
@@ -104,13 +108,19 @@ class RAGPipeline:
                 vectorstore.add_documents(docs)
             else:
                 vectorstore.add_documents(docs, ids=ids)
+            for doc in docs:
+                self._bm25_cache.pop(doc.metadata["user_id"], None)
         return len(docs)
 
-    def delete_chunks(self, chunk_ids: list[str]) -> None:
+    def delete_chunks(self, chunk_ids: list[str], user_id: int | None = None) -> None:
         if not chunk_ids:
             return
         with self._lock:
             self._load_vectorstore().delete(ids=list(chunk_ids))
+            if user_id is None:
+                self._bm25_cache.clear()
+            else:
+                self._bm25_cache.pop(user_id, None)
 
     def ingest_texts(self, texts: Iterable[str], base_metadata: dict | None = None) -> int:
         docs = documents_from_texts(texts, base_metadata=base_metadata)
@@ -123,22 +133,93 @@ class RAGPipeline:
         added = self.ingest_documents(docs)
         return {"chunks_added": added, "content_hash": hash_content(content)}
 
+    def _dense_hits(self, query: str, user_id: int, k: int) -> list[dict]:
+        results = self._load_vectorstore().similarity_search_with_relevance_scores(
+            query, k=k, filter={"user_id": user_id}
+        )
+        return [
+            {
+                "id": doc.id,
+                "content": doc.page_content,
+                "score": float(score),
+                "metadata": dict(doc.metadata),
+            }
+            for doc, score in results
+        ]
+
+    def _bm25_index(self, user_id: int) -> UserBM25Index:
+        index = self._bm25_cache.get(user_id)
+        if index is None:
+            data = self._load_vectorstore().get(
+                where={"user_id": user_id}, include=["documents", "metadatas"]
+            )
+            index = UserBM25Index(
+                ids=data["ids"],
+                contents=data["documents"] or [],
+                metadatas=data["metadatas"] or [],
+            )
+            self._bm25_cache[user_id] = index
+        return index
+
+    def _hybrid_candidates(self, query: str, user_id: int) -> list[dict]:
+        """Dense + BM25 candidates fused with Reciprocal Rank Fusion."""
+        candidate_k = self.config.candidate_k
+        dense = self._dense_hits(query, user_id, candidate_k)
+        bm25_hits = self._bm25_index(user_id).search(query, candidate_k)
+
+        rrf_scores = rrf_fuse([[hit["id"] for hit in dense], [hit.chunk_id for hit in bm25_hits]])
+
+        merged: dict[str, dict] = {}
+        for rank, hit in enumerate(dense, start=1):
+            merged[hit["id"]] = {
+                "content": hit["content"],
+                "metadata": hit["metadata"],
+                "dense_rank": rank,
+            }
+        for hit in bm25_hits:
+            entry = merged.setdefault(
+                hit.chunk_id, {"content": hit.content, "metadata": dict(hit.metadata)}
+            )
+            entry["bm25_rank"] = hit.rank
+
+        candidates = []
+        for chunk_id, entry in merged.items():
+            metadata = dict(entry["metadata"])
+            metadata["retrieval_mode"] = "hybrid"
+            metadata["rrf_score"] = round(rrf_scores[chunk_id], 6)
+            for key in ("dense_rank", "bm25_rank"):
+                if key in entry:
+                    metadata[key] = entry[key]
+            candidates.append(
+                {"content": entry["content"], "score": rrf_scores[chunk_id], "metadata": metadata}
+            )
+        candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
+        return candidates
+
     def retrieve(self, query: str, *, user_id: int, top_k: int | None = None) -> list[dict]:
-        """User-filtered vector search only: no rewriter, no grader, no answerer.
+        """User-filtered retrieval: no rewriter, no answerer.
 
         Returns one dict per chunk: {content, score, metadata}, best first.
+        In hybrid mode the score is the RRF score and the metadata carries
+        retrieval_mode, rrf_score and the individual dense/bm25 ranks.
         """
         vectorstore = self._load_vectorstore()
         if self._collection_count(vectorstore) == 0:
             return []
-        k = top_k or self.config.final_k
-        results = vectorstore.similarity_search_with_relevance_scores(
-            query, k=k, filter={"user_id": user_id}
-        )
-        return [
-            {"content": doc.page_content, "score": float(score), "metadata": doc.metadata}
-            for doc, score in results
-        ]
+        k_final = top_k or self.config.final_k
+
+        if self.config.hybrid_enabled:
+            candidates = self._hybrid_candidates(query, user_id)
+        else:
+            candidates = [
+                {
+                    "content": hit["content"],
+                    "score": hit["score"],
+                    "metadata": {**hit["metadata"], "retrieval_mode": "dense"},
+                }
+                for hit in self._dense_hits(query, user_id, k_final)
+            ]
+        return candidates[:k_final]
 
     def query(self, query: str, *, user_id: int, top_k: int | None = None) -> dict:
         vectorstore = self._load_vectorstore()

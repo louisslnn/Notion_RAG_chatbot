@@ -58,7 +58,7 @@ def sync_vault(
         chunk_ids = [str(uuid4()) for _ in chunks]
 
         if record:
-            pipeline.delete_chunks(record.chunk_ids or [])
+            pipeline.delete_chunks(record.chunk_ids or [], user_id=user_id)
         if chunks:
             pipeline.ingest_documents(chunks, ids=chunk_ids)
 
@@ -81,7 +81,7 @@ def sync_vault(
         report.deleted.append(note_path)
         if dry_run:
             continue
-        pipeline.delete_chunks(record.chunk_ids or [])
+        pipeline.delete_chunks(record.chunk_ids or [], user_id=user_id)
         db.session.delete(record)
 
     if not dry_run:

@@ -27,6 +27,7 @@ dependencies = [
     "werkzeug>=3.0",
     "gunicorn>=22.0",
     "python-frontmatter>=1.1",
+    "rank-bm25>=0.2",
 ]
 
 [dependency-groups]
