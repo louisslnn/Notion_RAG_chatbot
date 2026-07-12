@@ -15,6 +15,21 @@ from .rewriter import QueryRewriter
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 
 
+def _sanitize_metadata(metadata: dict) -> dict:
+    """Chroma only accepts scalar metadata values; flatten everything else."""
+    clean: dict = {}
+    for key, value in metadata.items():
+        if value is None or (isinstance(value, (list, tuple)) and not value):
+            continue
+        if isinstance(value, (str, int, float, bool)):
+            clean[key] = value
+        elif isinstance(value, (list, tuple)):
+            clean[key] = ", ".join(str(item) for item in value)
+        else:
+            clean[key] = str(value)
+    return clean
+
+
 class RAGPipeline:
     def __init__(self, persist_directory: str, top_k: int = 4):
         self.persist_directory = Path(persist_directory)
@@ -43,16 +58,28 @@ class RAGPipeline:
         except AttributeError:
             return 0
 
-    def ingest_documents(self, docs: list[Document]) -> int:
+    def ingest_documents(self, docs: list[Document], ids: list[str] | None = None) -> int:
         if not docs:
             return 0
+        if ids is not None and len(ids) != len(docs):
+            raise ValueError("ids must match docs one-to-one")
         for doc in docs:
             if doc.metadata.get("user_id") is None:
                 raise ValueError("Every ingested document must carry a user_id in its metadata")
+            doc.metadata = _sanitize_metadata(doc.metadata)
         with self._lock:
             vectorstore = self._load_vectorstore()
-            vectorstore.add_documents(docs)
+            if ids is None:
+                vectorstore.add_documents(docs)
+            else:
+                vectorstore.add_documents(docs, ids=ids)
         return len(docs)
+
+    def delete_chunks(self, chunk_ids: list[str]) -> None:
+        if not chunk_ids:
+            return
+        with self._lock:
+            self._load_vectorstore().delete(ids=list(chunk_ids))
 
     def ingest_texts(self, texts: Iterable[str], base_metadata: dict | None = None) -> int:
         docs = documents_from_texts(texts, base_metadata=base_metadata)

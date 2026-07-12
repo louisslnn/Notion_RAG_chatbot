@@ -21,6 +21,9 @@ class User(db.Model):
         "UploadedDocument", back_populates="user", cascade="all, delete-orphan"
     )
     usage_logs = db.relationship("UsageLog", back_populates="user", cascade="all, delete-orphan")
+    synced_notes = db.relationship(
+        "SyncedNote", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         return f"<User {self.email}>"
@@ -75,6 +78,25 @@ class UploadedDocument(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     user = db.relationship("User", back_populates="documents")
+
+
+class SyncedNote(db.Model):
+    """Tracks the sync state of one vault note for one user (incremental sync)."""
+
+    __tablename__ = "synced_notes"
+    __table_args__ = (db.UniqueConstraint("user_id", "note_path", name="uq_synced_note_user_path"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    note_path = db.Column(db.String(1024), nullable=False)
+    content_hash = db.Column(db.String(64), nullable=False)
+    chunk_ids = db.Column(db.JSON, nullable=False, default=list)
+    last_synced_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship("User", back_populates="synced_notes")
+
+    def __repr__(self) -> str:  # pragma: no cover - debug helper
+        return f"<SyncedNote {self.note_path} user={self.user_id}>"
 
 
 class UsageLog(db.Model):
