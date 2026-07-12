@@ -4,6 +4,7 @@ import click
 from flask import current_app
 from flask.cli import AppGroup
 
+from .evals.answers import evaluate_answers
 from .evals.generator import GoldsetGenerator
 from .evals.goldset import load_goldset, save_goldset
 from .evals.retrieval import evaluate_retrieval
@@ -116,3 +117,20 @@ def eval_retrieval_command(goldset_path: str, email: str, k: int):
 
     click.echo(f"Retrieval eval: {result['questions_evaluated']} questions (k={k})")
     _echo_metric_lines(result)
+
+
+@rag_cli.command("eval-answers")
+@click.option(
+    "--goldset", "goldset_path", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.option("--user", "email", required=True, help="Email of the user whose index is evaluated.")
+@click.option("--limit", default=None, type=int, help="Evaluate only the first N questions.")
+def eval_answers_command(goldset_path: str, email: str, limit: int | None):
+    """End-to-end evaluation with an LLM judge (needs ANTHROPIC_API_KEY)."""
+    user = _require_user(email)
+    items = load_goldset(goldset_path)
+    result = evaluate_answers(items, pipeline=_app_pipeline(), user_id=user.id, limit=limit)
+
+    click.echo(f"Answer eval: {result['questions_evaluated']} questions")
+    for name, value in result["metrics"].items():
+        click.echo(f"  {name}: {value if value is not None else 'n/a'}")
