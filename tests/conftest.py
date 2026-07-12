@@ -12,14 +12,16 @@ class FakeAnswerer:
         return f"Answer based on {len(chunks)} chunk(s)."
 
 
-class FakeGrader:
-    def grade(self, question, context_text):
-        return "yes"
-
-
 class FakeRewriter:
     def rewrite(self, original_query):
         return original_query
+
+
+class FakeReranker:
+    """High constant relevance: never triggers the rerank threshold."""
+
+    def score(self, query, texts):
+        return [0.9] * len(texts)
 
 
 @pytest.fixture(autouse=True)
@@ -35,8 +37,8 @@ def _patch_rag(monkeypatch):
         lambda **kwargs: DeterministicFakeEmbedding(size=64),
     )
     monkeypatch.setattr(pipeline_module, "AnswerGenerator", FakeAnswerer)
-    monkeypatch.setattr(pipeline_module, "ContextGrader", FakeGrader)
     monkeypatch.setattr(pipeline_module, "QueryRewriter", FakeRewriter)
+    monkeypatch.setattr(pipeline_module, "Reranker", FakeReranker)
     pipeline_module._pipeline = None
     yield
     pipeline_module._pipeline = None

@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from ..rag.answerer import DEFAULT_MODEL as ANSWER_MODEL
-from ..rag.grader import DEFAULT_MODEL as GRADER_MODEL
 from ..rag.ingestion import CHUNK_OVERLAP, CHUNK_SIZE, MAX_SECTION_CHARS, SECTION_CHUNK_OVERLAP
 from ..rag.pipeline import EMBEDDING_MODEL_NAME, RAGPipeline
+from ..rag.reranker import RERANKER_MODEL_NAME
 from ..rag.rewriter import DEFAULT_MODEL as REWRITER_MODEL
 
 DEFAULT_RUNS_DIR = "evals/runs"
@@ -28,8 +28,8 @@ def build_config(pipeline: RAGPipeline, **extra) -> dict:
         "embedding_model": EMBEDDING_MODEL_NAME,
         "retrieval": asdict(pipeline.config),
         "answer_model": ANSWER_MODEL,
-        "grader_model": GRADER_MODEL,
         "rewriter_model": REWRITER_MODEL,
+        "reranker_model": RERANKER_MODEL_NAME,
         "chunking": {
             "text_chunk_size": CHUNK_SIZE,
             "text_chunk_overlap": CHUNK_OVERLAP,

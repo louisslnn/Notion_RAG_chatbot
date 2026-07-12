@@ -1,16 +1,3 @@
-GRADE_PROMPT = """
-You are a grader. Decide whether the retrieved document content is relevant to the user question.
-
-User question:
-{question}
-
-Retrieved document content:
-{context}
-
-If the document contains keywords or semantic meaning related to the user question,
-respond with exactly 'yes'. Otherwise respond with exactly 'no'.
-"""
-
 REWRITE_PROMPT = """
 Rewrite the following user query into a clearer, more specific question that would help an assistant
 answer using notes. Keep it short and on-point.

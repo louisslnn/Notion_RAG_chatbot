@@ -11,7 +11,6 @@ class ExplodingClient:
 
 def test_retrieve_never_instantiates_llm_clients(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline_module, "AnswerGenerator", ExplodingClient)
-    monkeypatch.setattr(pipeline_module, "ContextGrader", ExplodingClient)
     monkeypatch.setattr(pipeline_module, "QueryRewriter", ExplodingClient)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 

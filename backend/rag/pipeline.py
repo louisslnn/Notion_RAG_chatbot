@@ -11,8 +11,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from .answerer import AnswerGenerator
 from .bm25 import UserBM25Index
 from .fusion import rrf_fuse
-from .grader import ContextGrader
 from .ingestion import chunk_content, documents_from_texts, hash_content
+from .reranker import Reranker
 from .retrieval_config import RetrievalConfig
 from .rewriter import QueryRewriter
 
@@ -55,8 +55,8 @@ class RAGPipeline:
         # LLM clients are created lazily so retrieval-only usage (retrieve(),
         # ingestion, evals) works without an Anthropic API key.
         self._answerer: AnswerGenerator | None = None
-        self._grader: ContextGrader | None = None
         self._rewriter: QueryRewriter | None = None
+        self._reranker: Reranker | None = None
 
         self.persist_directory.mkdir(parents=True, exist_ok=True)
 
@@ -67,10 +67,10 @@ class RAGPipeline:
         return self._answerer
 
     @property
-    def grader(self) -> ContextGrader:
-        if self._grader is None:
-            self._grader = ContextGrader()
-        return self._grader
+    def reranker(self) -> Reranker:
+        if self._reranker is None:
+            self._reranker = Reranker()
+        return self._reranker
 
     @property
     def rewriter(self) -> QueryRewriter:
@@ -207,6 +207,8 @@ class RAGPipeline:
         if self._collection_count(vectorstore) == 0:
             return []
         k_final = top_k or self.config.final_k
+        # Reranking needs a wide candidate pool even in dense-only mode.
+        dense_k = self.config.candidate_k if self.config.rerank_enabled else k_final
 
         if self.config.hybrid_enabled:
             candidates = self._hybrid_candidates(query, user_id)
@@ -215,11 +217,26 @@ class RAGPipeline:
                 {
                     "content": hit["content"],
                     "score": hit["score"],
-                    "metadata": {**hit["metadata"], "retrieval_mode": "dense"},
+                    "metadata": {
+                        **hit["metadata"],
+                        "retrieval_mode": "dense",
+                        "dense_rank": rank,
+                    },
                 }
-                for hit in self._dense_hits(query, user_id, k_final)
+                for rank, hit in enumerate(self._dense_hits(query, user_id, dense_k), start=1)
             ]
+
+        if self.config.rerank_enabled and candidates:
+            candidates = self._rerank(query, candidates[: self.config.candidate_k])
         return candidates[:k_final]
+
+    def _rerank(self, query: str, candidates: list[dict]) -> list[dict]:
+        scores = self.reranker.score(query, [candidate["content"] for candidate in candidates])
+        for candidate, score in zip(candidates, scores, strict=True):
+            candidate["score"] = score
+            candidate["metadata"]["rerank_score"] = round(score, 6)
+        candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
+        return candidates
 
     def query(self, query: str, *, user_id: int, top_k: int | None = None) -> dict:
         vectorstore = self._load_vectorstore()
@@ -268,18 +285,19 @@ class RAGPipeline:
                     entry[key] = value
             source_entries.append(entry)
 
-        combined_context = "\n\n".join(chunks)
-        decision = self.grader.grade(rewritten_query, combined_context)
-
-        if decision != "yes":
-            return {
-                "answer": (
-                    "Retrieved notes do not appear relevant. Refine the query or add documents."
-                ),
-                "sources": source_entries[:3],
-                "query_original": query,
-                "query_rewritten": rewritten_query,
-            }
+        # The binary LLM grader is replaced by a threshold on the cross-encoder
+        # score: if no chunk clears it, the pipeline says it found nothing.
+        if self.config.rerank_enabled:
+            best_score = max(hit["metadata"].get("rerank_score", 0.0) for hit in hits)
+            if best_score < self.config.rerank_threshold:
+                return {
+                    "answer": (
+                        "Retrieved notes do not appear relevant. Refine the query or add documents."
+                    ),
+                    "sources": source_entries[:3],
+                    "query_original": query,
+                    "query_rewritten": rewritten_query,
+                }
 
         answer = self.answerer.generate(rewritten_query, chunks)
         return {
